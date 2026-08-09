@@ -1,0 +1,13 @@
+{
+  "name": "openclaw-lobster",
+  "version": "1.0.0",
+  "description": "OpenClaw QQ Bot Deployment",
+  "private": true,
+  "scripts": {
+    "start": "openclaw gateway --port 18789 --verbose",
+    "gateway": "openclaw gateway --port 18789"
+  },
+  "dependencies": {
+    "openclaw": "^2026.7.1-2"
+  }
+}

@@ -1,0 +1,96 @@
+# ============================================
+# 🔒 隐私安全：以下文件绝不提交到 Git
+# ============================================
+
+# ---- API 密钥 & 凭证（最高优先级）----
+blue-mode/config.json
+.openclaw/
+
+# ---- 聊天数据（含完整对话历史）----
+chat-data/
+
+# ---- 截图（含桌面隐私信息）----
+screenshots/
+blue-mode/screenshots/
+
+# ---- 个人/内部配置文件 ----
+MEMORY.md
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+openclaw-workspace-state.json
+
+# ---- 机器学习数据（含桌面布局/坐标）----
+blue-mode/knowledge/
+
+# ---- 私人文档 ----
+给老六的GitHub发布prompt.txt
+
+# ---- 日志文件 ----
+*.log
+blue-mode/*.log
+
+# ---- 打包存档 ----
+老六Chat-*.zip
+
+# ---- 依赖（通过 setup.bat 安装）----
+node_modules/
+__pycache__/
+*.pyc
+python-libs/
+package-lock.json
+
+# ---- Node.js 运行时（太大，请用户自己安装）----
+node-v24-extracted/
+node-v24.18.0-win-x64.zip
+nodejs/
+
+# ---- Ollama（太大，请用户自己安装）----
+ollama-app/
+ollama-models/
+
+# ---- 无关脚本/工具 ----
+build.bat
+verify.py
+verify.ps1
+job_scraper.py
+job_scraper_v2.py
+feishu_projects.csv
+claude_permission_monitor.py
+
+# ---- 维护脚本 ----
+check_e.ps1
+scan_dupes.ps1
+scan_dupes2.ps1
+task1b.ps1
+task1_clean.ps1
+task2_move.ps1
+task2_scan.ps1
+task3_move.ps1
+task3_scan.ps1
+task3_status.ps1
+
+# ---- Git 便携版（非项目文件）----
+Git/
+
+# ---- IDE / 系统 ----
+.git/
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# ---- Gateway 测试日志 ----
+gateway-test-stderr.log
+gateway-test-stdout.log
+batch-debug4-stderr.log
+batch-debug4-stdout.log
+batch-debug5-stderr.log
+batch-debug5-stdout.log
+batch-debug6-stderr.log
+batch-debug6-stdout.log
+batch-final-stderr.log
+batch-final-stdout.log

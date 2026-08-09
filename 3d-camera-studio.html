@@ -1,0 +1,3234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D运镜工作室 - 语义学习 + 时间轴剪辑</title>
+<style>
+/* ============================================================
+   CSS RESET & VARIABLES
+   ============================================================ */
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --bg3: #0f3460;
+  --panel-bg: #1e1e32;
+  --border: #2a2a4a;
+  --text: #e0e0e0;
+  --text2: #a0a0b8;
+  --accent: #e94560;
+  --accent2: #0ea5e9;
+  --accent3: #22c55e;
+  --gold: #f59e0b;
+  --track-bg: #252540;
+  --clip-camera: #e94560;
+  --clip-selected: #f59e0b;
+  --timeline-bg: #1a1a2e;
+  --playhead: #ffffff;
+  --scrollbar: #3a3a5a;
+  --font: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', 'Microsoft YaHei', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px; }
+input,select,textarea,button { font-family:inherit; font-size:inherit; }
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--scrollbar); border-radius:3px; }
+
+/* ============================================================
+   MAIN LAYOUT - CSS Grid
+   ============================================================ */
+#app {
+  display:grid;
+  grid-template-columns:280px 1fr 260px;
+  grid-template-rows:1fr auto;
+  width:100%; height:100%;
+}
+/* Left Panel */
+#left-panel {
+  grid-row:1/3; grid-column:1;
+  background:var(--panel-bg); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow:hidden; z-index:10;
+}
+/* Center (3D + timeline) */
+#center-col {
+  grid-row:1; grid-column:2;
+  display:flex; flex-direction:column; overflow:hidden; position:relative;
+}
+/* Right Panel */
+#right-panel {
+  grid-row:1/3; grid-column:3;
+  background:var(--panel-bg); border-left:1px solid var(--border);
+  display:flex; flex-direction:column; overflow-y:auto; z-index:10; padding:8px;
+}
+/* Bottom Timeline */
+#timeline-container {
+  grid-row:2; grid-column:2;
+  height:200px; background:var(--timeline-bg); border-top:2px solid var(--border);
+  display:flex; flex-direction:column; overflow:hidden; z-index:10;
+}
+
+/* ============================================================
+   LEFT PANEL SECTIONS
+   ============================================================ */
+.panel-section {
+  padding:10px; border-bottom:1px solid var(--border);
+}
+.panel-section h3 {
+  font-size:12px; text-transform:uppercase; letter-spacing:1px;
+  color:var(--accent2); margin-bottom:8px; display:flex; align-items:center; gap:6px;
+}
+.panel-section h3 .icon { font-size:14px; }
+
+#model-upload-area {
+  border:2px dashed var(--border); border-radius:8px; padding:16px 10px;
+  text-align:center; cursor:pointer; transition:all 0.2s;
+  background:var(--bg); margin-bottom:6px;
+}
+#model-upload-area:hover { border-color:var(--accent2); background:var(--bg2); }
+#model-upload-area.dragover { border-color:var(--accent3); background:#0a2a1a; }
+#model-upload-area .upload-icon { font-size:28px; display:block; margin-bottom:4px; }
+#model-upload-area .upload-text { color:var(--text2); font-size:11px; }
+#model-file-input { display:none; }
+
+#shot-input {
+  width:100%; min-height:72px; background:var(--bg); color:var(--text);
+  border:1px solid var(--border); border-radius:6px; padding:8px; resize:vertical;
+  font-size:12px; line-height:1.5;
+}
+#shot-input:focus { outline:none; border-color:var(--accent2); }
+#shot-input::placeholder { color:var(--text2); }
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  padding:7px 14px; border:none; border-radius:6px; cursor:pointer;
+  font-weight:600; font-size:12px; transition:all 0.15s; white-space:nowrap;
+}
+.btn:active { transform:scale(0.97); }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:#ff5a75; }
+.btn-accent { background:var(--accent2); color:#fff; }
+.btn-accent:hover { background:#38bdf8; }
+.btn-green { background:var(--accent3); color:#000; }
+.btn-green:hover { background:#4ade80; }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { border-color:var(--accent2); color:var(--accent2); }
+.btn-sm { padding:4px 10px; font-size:11px; }
+.btn-xs { padding:2px 7px; font-size:10px; border-radius:4px; }
+.btn-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+#shot-list {
+  flex:1; overflow-y:auto; min-height:0;
+}
+.shot-item {
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  padding:8px; margin-bottom:6px; font-size:11px; position:relative;
+}
+.shot-item .shot-header {
+  display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;
+}
+.shot-item .shot-type { color:var(--accent2); font-weight:600; font-size:10px; }
+.shot-item .shot-time { color:var(--text2); font-size:10px; }
+.shot-item .shot-desc { color:var(--text); font-size:11px; line-height:1.4; }
+.shot-item .shot-actions { display:flex; gap:4px; margin-top:4px; }
+
+/* ============================================================
+   RIGHT PANEL
+   ============================================================ */
+.tool-group {
+  margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border);
+}
+.tool-group h4 { font-size:11px; color:var(--accent2); margin-bottom:6px; letter-spacing:0.5px; }
+.tool-group .btn { width:100%; margin-bottom:4px; }
+
+#playback-controls { display:flex; flex-direction:column; gap:4px; }
+#playback-controls .btn-row { justify-content:center; }
+#speed-slider { width:100%; accent-color:var(--accent2); }
+
+#track-preview-canvas {
+  width:100%; height:120px; background:var(--bg); border-radius:6px;
+  border:1px solid var(--border); margin-top:4px;
+}
+
+.info-row {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:3px 0; font-size:11px;
+}
+.info-row .label { color:var(--text2); }
+.info-row .value { color:var(--text); font-weight:600; font-family:var(--font-mono); }
+
+/* ============================================================
+   3D CANVAS
+   ============================================================ */
+#canvas-container {
+  flex:1; position:relative; background:radial-gradient(ellipse at center, #1a1a3a 0%, #0a0a15 100%);
+  min-height:0; overflow:hidden;
+}
+#canvas-container canvas { display:block; width:100%; height:100%; }
+#canvas-overlay {
+  position:absolute; top:10px; left:10px; pointer-events:none;
+  font-size:11px; color:var(--text2); background:rgba(0,0,0,0.5);
+  padding:4px 8px; border-radius:4px;
+}
+#canvas-drop-hint {
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  pointer-events:none; color:var(--text2); font-size:16px;
+  flex-direction:column; gap:8px;
+}
+#canvas-drop-hint .hint-icon { font-size:48px; opacity:0.3; }
+
+/* ============================================================
+   TIMELINE
+   ============================================================ */
+#timeline-toolbar {
+  display:flex; align-items:center; gap:8px; padding:4px 10px;
+  background:var(--bg2); border-bottom:1px solid var(--border); min-height:32px;
+}
+#timeline-toolbar .tl-btn {
+  background:transparent; border:1px solid var(--border); color:var(--text);
+  padding:3px 8px; border-radius:4px; cursor:pointer; font-size:11px;
+  transition:all 0.15s;
+}
+#timeline-toolbar .tl-btn:hover { border-color:var(--accent2); color:var(--accent2); }
+#timeline-toolbar .tl-btn.active { background:var(--accent2); color:#fff; border-color:var(--accent2); }
+#timeline-toolbar .tl-sep { width:1px; height:18px; background:var(--border); }
+#timeline-toolbar .tl-label { font-size:10px; color:var(--text2); }
+
+#timeline-canvas-wrap {
+  flex:1; overflow-x:auto; overflow-y:hidden; position:relative;
+}
+#timeline-canvas { display:block; cursor:default; }
+
+/* Timeline context menu */
+.timeline-context-menu {
+  position:fixed; background:var(--panel-bg); border:1px solid var(--border);
+  border-radius:8px; padding:4px 0; z-index:9999; min-width:140px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.5); display:none;
+}
+.timeline-context-menu .ctx-item {
+  padding:7px 16px; cursor:pointer; font-size:12px; display:flex; align-items:center; gap:8px;
+  transition:background 0.1s;
+}
+.timeline-context-menu .ctx-item:hover { background:var(--bg2); color:var(--accent2); }
+.timeline-context-menu .ctx-sep { height:1px; background:var(--border); margin:4px 0; }
+
+/* ============================================================
+   MODALS
+   ============================================================ */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000;
+  display:flex; align-items:center; justify-content:center;
+}
+.modal {
+  background:var(--panel-bg); border:1px solid var(--border); border-radius:12px;
+  padding:20px; max-width:560px; width:90%; max-height:80vh; overflow-y:auto;
+  box-shadow:0 16px 48px rgba(0,0,0,0.5);
+}
+.modal h2 { font-size:16px; margin-bottom:12px; color:var(--accent2); }
+.modal h3 { font-size:13px; margin:10px 0 6px; color:var(--text); }
+.modal label { display:block; font-size:11px; color:var(--text2); margin-bottom:3px; margin-top:8px; }
+.modal input,.modal select,.modal textarea {
+  width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border);
+  border-radius:6px; padding:7px 10px; font-size:12px;
+}
+.modal input:focus,.modal select:focus,.modal textarea:focus { outline:none; border-color:var(--accent2); }
+.modal textarea { min-height:60px; resize:vertical; }
+.modal .btn-row { justify-content:flex-end; margin-top:12px; }
+
+/* Semantic library table */
+#semantic-table {
+  width:100%; border-collapse:collapse; font-size:11px; margin-top:8px;
+}
+#semantic-table th {
+  text-align:left; padding:6px 8px; background:var(--bg2); color:var(--accent2);
+  border-bottom:1px solid var(--border); font-size:10px; text-transform:uppercase;
+}
+#semantic-table td {
+  padding:5px 8px; border-bottom:1px solid var(--border);
+}
+#semantic-table tr:hover td { background:var(--bg2); }
+#semantic-table .word-tag {
+  display:inline-block; background:var(--accent); color:#fff; padding:1px 6px; border-radius:3px;
+  font-size:10px; font-weight:600;
+}
+
+/* Toast */
+#toast {
+  position:fixed; bottom:20px; right:20px; z-index:9999;
+  background:var(--accent3); color:#000; padding:10px 18px; border-radius:8px;
+  font-weight:600; font-size:12px; pointer-events:none;
+  opacity:0; transform:translateY(20px); transition:all 0.3s;
+}
+#toast.show { opacity:1; transform:translateY(0); }
+
+/* ============================================================
+   RESPONSIVE / MISC
+   ============================================================ */
+.status-bar {
+  font-size:10px; color:var(--text2); padding:2px 8px;
+  background:var(--bg); border-top:1px solid var(--border); display:flex; gap:12px;
+}
+#progress-bar-wrap {
+  height:3px; background:var(--bg); position:relative;
+}
+#progress-bar-fill {
+  height:100%; background:var(--accent2); width:0%; transition:width 0.3s;
+}
+.track-label {
+  position:absolute; left:4px; top:50%; transform:translateY(-50%);
+  font-size:10px; color:var(--text2); pointer-events:none; z-index:2;
+  background:rgba(0,0,0,0.7); padding:1px 6px; border-radius:3px;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     APP STRUCTURE
+     ============================================================ -->
+<div id="app">
+
+  <!-- LEFT PANEL -->
+  <div id="left-panel">
+    <div class="panel-section">
+      <h3><span class="icon">📦</span> 模型上传</h3>
+      <div id="model-upload-area" title="点击上传或拖拽GLB/GLTF文件">
+        <span class="upload-icon">📁</span>
+        <span class="upload-text">点击上传 / 拖拽 GLB / GLTF</span>
+      </div>
+      <input type="file" id="model-file-input" accept=".glb,.gltf">
+      <button class="btn btn-green btn-sm" id="btn-test-model" style="width:100%;margin-top:6px;">🧪 加载测试模型 (跳跃角色)</button>
+      <div class="status-bar" id="model-status">未加载模型</div>
+    </div>
+
+    <div class="panel-section">
+      <h3><span class="icon">🎬</span> 镜头描述</h3>
+      <textarea id="shot-input" placeholder="输入镜头描述，支持时间段：&#10;例如：0-3秒环绕、3-6秒希区柯克变焦、6-10秒推近特写"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-parse-shot">✨ 解析并生成镜头</button>
+        <button class="btn btn-outline btn-sm" id="btn-clear-shots">清空</button>
+      </div>
+    </div>
+
+    <div class="panel-section" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <h3><span class="icon">📋</span> 分镜列表 <span style="font-weight:400;color:var(--text2);margin-left:auto;" id="shot-count">0段</span></h3>
+      <div id="shot-list"></div>
+    </div>
+
+    <div class="panel-section">
+      <button class="btn btn-accent" id="btn-open-semantic" style="width:100%;">🧠 语义学习库管理</button>
+    </div>
+  </div>
+
+  <!-- CENTER: 3D + TIMELINE -->
+  <div id="center-col">
+    <div id="canvas-container">
+      <canvas id="canvas3d"></canvas>
+      <div id="canvas-drop-hint">
+        <span class="hint-icon">🎥</span>
+        <span>上传3D模型开始创作</span>
+      </div>
+      <div id="canvas-overlay">就绪</div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="right-panel">
+    <div class="tool-group">
+      <h4>🔧 剪辑工具</h4>
+      <button class="btn btn-outline btn-sm" id="btn-tool-split">✂️ 分割镜头</button>
+      <button class="btn btn-outline btn-sm" id="btn-tool-copy">📋 复制镜头</button>
+      <button class="btn btn-outline btn-sm" id="btn-tool-delete">🗑️ 删除镜头</button>
+      <button class="btn btn-outline btn-sm" id="btn-tool-lock">🔒 锁定/解锁</button>
+    </div>
+
+    <div class="tool-group">
+      <h4>▶️ 播放控制</h4>
+      <div id="playback-controls">
+        <div class="btn-row" style="justify-content:center;">
+          <button class="btn btn-sm btn-outline" id="btn-skip-start">⏮</button>
+          <button class="btn btn-sm btn-outline" id="btn-step-prev">◀</button>
+          <button class="btn btn-sm btn-accent" id="btn-play-pause">▶️ 播放</button>
+          <button class="btn btn-sm btn-outline" id="btn-step-next">▶</button>
+          <button class="btn btn-sm btn-outline" id="btn-skip-end">⏭</button>
+        </div>
+        <div class="info-row">
+          <span class="label">当前时间</span>
+          <span class="value" id="current-time-display">0.00s</span>
+        </div>
+        <div class="info-row">
+          <span class="label">总时长</span>
+          <span class="value" id="total-time-display">0.00s</span>
+        </div>
+        <div class="info-row">
+          <span class="label">播放倍速</span>
+          <span class="value" id="speed-display">1.0x</span>
+        </div>
+        <input type="range" id="speed-slider" min="0.5" max="2" step="0.25" value="1">
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <h4>👁️ 显示</h4>
+      <button class="btn btn-outline btn-sm" id="btn-toggle-trajectory">📐 轨迹线: 开</button>
+      <button class="btn btn-outline btn-sm" id="btn-toggle-grid">📏 网格: 开</button>
+      <button class="btn btn-outline btn-sm" id="btn-toggle-bones">🦴 骨骼锚点: 开</button>
+      <button class="btn btn-outline btn-sm" id="btn-reset-view" style="margin-top:4px;">🔄 回正视角</button>
+    </div>
+
+    <div class="tool-group">
+      <h4>💾 工程</h4>
+      <button class="btn btn-green btn-sm" id="btn-export-project">📤 导出工程JSON</button>
+      <button class="btn btn-outline btn-sm" id="btn-import-project">📥 导入工程JSON</button>
+      <input type="file" id="project-file-input" accept=".json" style="display:none;">
+    </div>
+
+    <div class="tool-group">
+      <h4>🎬 视频导出</h4>
+      <div class="info-row">
+        <span class="label">格式</span>
+        <select id="video-format" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;">
+          <option value="webm">WebM</option>
+          <option value="mp4">MP4</option>
+        </select>
+      </div>
+      <div class="info-row">
+        <span class="label">分辨率</span>
+        <select id="video-resolution" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;">
+          <option value="0.5">50% (低)</option>
+          <option value="0.75">75% (中)</option>
+          <option value="1" selected>100% (高)</option>
+        </select>
+      </div>
+      <div class="info-row">
+        <span class="label">帧率</span>
+        <select id="video-fps" style="font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;">
+          <option value="24">24 FPS</option>
+          <option value="30" selected>30 FPS</option>
+          <option value="60">60 FPS</option>
+        </select>
+      </div>
+      <button class="btn btn-accent btn-sm" id="btn-record" style="width:100%;margin-top:6px;">🔴 录制视频</button>
+      <button class="btn btn-outline btn-sm" id="btn-stop-record" style="width:100%;display:none;">⏹️ 停止录制</button>
+      <div class="status-bar" id="record-status" style="margin-top:4px;"></div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div id="timeline-container">
+    <div id="timeline-toolbar">
+      <span class="tl-label">时间轴</span>
+      <span class="tl-sep"></span>
+      <button class="tl-btn" id="tl-zoom-in" title="放大">🔍+</button>
+      <button class="tl-btn" id="tl-zoom-out" title="缩小">🔍-</button>
+      <button class="tl-btn" id="tl-fit" title="适应窗口">↔</button>
+      <span class="tl-sep"></span>
+      <button class="tl-btn" id="tl-snap" title="吸附">🧲 吸附</button>
+      <span style="margin-left:auto;font-size:10px;color:var(--text2);" id="tl-info">像素比: 100px/s</span>
+    </div>
+    <div id="timeline-canvas-wrap">
+      <canvas id="timeline-canvas"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- Context Menu -->
+<div class="timeline-context-menu" id="timeline-context-menu">
+  <div class="ctx-item" data-action="split">✂️ 分割</div>
+  <div class="ctx-item" data-action="copy">📋 复制</div>
+  <div class="ctx-item" data-action="delete">🗑️ 删除</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="lock">🔒 锁定/解锁</div>
+  <div class="ctx-item" data-action="rename">✏️ 重命名</div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- ============================================================
+     SEMANTIC LIBRARY MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="semantic-modal-overlay" style="display:none;">
+  <div class="modal" style="max-width:700px;">
+    <h2>🧠 语义学习库管理</h2>
+    <div class="btn-row" style="margin-bottom:10px;">
+      <button class="btn btn-accent btn-sm" id="btn-add-word">➕ 添加词条</button>
+      <button class="btn btn-outline btn-sm" id="btn-export-words">📤 导出词库</button>
+      <button class="btn btn-outline btn-sm" id="btn-import-words">📥 导入词库</button>
+      <input type="file" id="words-file-input" accept=".json" style="display:none;">
+      <button class="btn btn-outline btn-sm" id="btn-reset-words" style="color:var(--accent);">🔄 重置词库</button>
+    </div>
+    <div style="max-height:350px; overflow-y:auto;">
+      <table id="semantic-table">
+        <thead><tr><th>词汇</th><th>运动类型</th><th>使用次数</th><th>操作</th></tr></thead>
+        <tbody id="semantic-table-body"></tbody>
+      </table>
+    </div>
+    <div class="status-bar" id="semantic-status" style="margin-top:8px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="btn-close-semantic">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     NEW WORD DIALOG
+     ============================================================ -->
+<div class="modal-overlay" id="new-word-overlay" style="display:none;">
+  <div class="modal">
+    <h2>🆕 识别到陌生词汇</h2>
+    <p style="color:var(--text2);margin-bottom:10px;" id="new-word-prompt"></p>
+    <label>词汇</label>
+    <input type="text" id="new-word-text" placeholder="镜头词汇，如：希区柯克变焦">
+    <label>运动类型</label>
+    <select id="new-word-type">
+      <option value="orbit">环绕 (Orbit)</option>
+      <option value="hitchcock">希区柯克变焦 (Dolly Zoom)</option>
+      <option value="spiral">螺旋环绕 (Spiral)</option>
+      <option value="pushIn">推近 (Push In)</option>
+      <option value="pullOut">拉远 (Pull Out)</option>
+      <option value="pan">平移 (Pan)</option>
+      <option value="tilt">俯仰 (Tilt)</option>
+      <option value="track">跟踪 (Track)</option>
+      <option value="crane">升降 (Crane)</option>
+      <option value="fixed">定点 (Fixed)</option>
+      <option value="followBone">骨骼跟随 (Follow Bone)</option>
+      <option value="custom">自定义轨迹 (Custom)</option>
+    </select>
+    <label>默认时长(秒)</label>
+    <input type="number" id="new-word-duration" value="3" min="0.5" max="30" step="0.5">
+    <label>速度倍率</label>
+    <input type="range" id="new-word-speed" min="0.1" max="3" step="0.1" value="1" style="width:100%;">
+    <span style="font-size:10px;color:var(--text2);" id="new-word-speed-val">1.0x</span>
+    <label>抖动等级 (0=无, 3=强烈)</label>
+    <select id="new-word-shake">
+      <option value="0">0 - 无抖动</option>
+      <option value="1">1 - 轻微</option>
+      <option value="2">2 - 中等</option>
+      <option value="3">3 - 强烈</option>
+    </select>
+    <label>景深强度 (0=无)</label>
+    <input type="range" id="new-word-dof" min="0" max="1" step="0.1" value="0" style="width:100%;">
+    <span style="font-size:10px;color:var(--text2);" id="new-word-dof-val">0</span>
+    <label>高级参数 (JSON, 可选)</label>
+    <textarea id="new-word-extra" placeholder='{"radius":5, "height":2, "angleStart":0}'></textarea>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="btn-cancel-word">跳过</button>
+      <button class="btn btn-primary" id="btn-save-word">💾 保存到词库</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     THREE.JS IMPORT MAP (jsdelivr - China accessible CDN)
+     ============================================================ -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/* ============================================================
+   3D运镜工作室 - 完整单文件应用
+   包含：语义学习系统 + 时间轴剪辑系统 + 运镜引擎
+   ============================================================ */
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+// ============================================================
+// CONSTANTS & CONFIG
+// ============================================================
+const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/';
+const STORAGE_KEY_WORDS = 'camera_studio_semantic_library_v2';
+const STORAGE_KEY_PROJECT = 'camera_studio_current_project_v2';
+const DEFAULT_PIXELS_PER_SEC = 100;
+const TRACK_HEIGHT = 36;
+const TRACK_GAP = 4;
+const TIMELINE_PADDING_LEFT = 120;
+const TIMELINE_HEADER_HEIGHT = 24;
+const MIN_CLIP_WIDTH = 10;
+
+// Built-in semantic word definitions
+const BUILTIN_WORDS = {
+  '环绕':      { type:'orbit',     duration:3, speed:1, shake:0, dof:0, extra:{radius:5,height:1.5} },
+  '希区柯克':   { type:'hitchcock', duration:3, speed:1, shake:0, dof:0, extra:{zoomRange:3} },
+  '希区柯克变焦': { type:'hitchcock', duration:3, speed:1, shake:0, dof:0, extra:{zoomRange:3} },
+  'dolly zoom':{ type:'hitchcock', duration:3, speed:1, shake:0, dof:0, extra:{zoomRange:3} },
+  '螺旋':      { type:'spiral',    duration:4, speed:1, shake:0, dof:0, extra:{radius:5,height:3,spirals:2} },
+  '推近':      { type:'pushIn',    duration:2, speed:1, shake:0, dof:0, extra:{distance:3} },
+  '拉远':      { type:'pullOut',   duration:2, speed:1, shake:0, dof:0, extra:{distance:3} },
+  '平移':      { type:'pan',       duration:2, speed:1, shake:0, dof:0, extra:{angle:45} },
+  '俯仰':      { type:'tilt',      duration:2, speed:1, shake:0, dof:0, extra:{angle:30} },
+  '升降':      { type:'crane',     duration:3, speed:1, shake:0, dof:0, extra:{height:4} },
+  '跟随':      { type:'followBone',duration:3, speed:1, shake:0, dof:0, extra:{boneName:''} },
+  '特写':      { type:'pushIn',    duration:2, speed:1, shake:0, dof:0.3, extra:{distance:1.5} },
+  '全景':      { type:'pullOut',   duration:3, speed:1, shake:0, dof:0, extra:{distance:6} },
+  '摇镜':      { type:'pan',       duration:2, speed:1.2, shake:0, dof:0, extra:{angle:90} },
+  '快速':      { type:'orbit',     duration:2, speed:2, shake:1, dof:0, extra:{radius:4,height:1} },
+  '慢速':      { type:'orbit',     duration:6, speed:0.5, shake:0, dof:0, extra:{radius:6,height:2} },
+};
+
+// ============================================================
+// DOM REFS
+// ============================================================
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+const dom = {
+  canvas3d: $('#canvas3d'),
+  canvasContainer: $('#canvas-container'),
+  canvasOverlay: $('#canvas-overlay'),
+  canvasDropHint: $('#canvas-drop-hint'),
+  modelUploadArea: $('#model-upload-area'),
+  modelFileInput: $('#model-file-input'),
+  modelStatus: $('#model-status'),
+  shotInput: $('#shot-input'),
+  shotList: $('#shot-list'),
+  shotCount: $('#shot-count'),
+  currentTimeDisplay: $('#current-time-display'),
+  totalTimeDisplay: $('#total-time-display'),
+  speedDisplay: $('#speed-display'),
+  speedSlider: $('#speed-slider'),
+  timelineCanvas: $('#timeline-canvas'),
+  timelineCanvasWrap: $('#timeline-canvas-wrap'),
+  tlInfo: $('#tl-info'),
+  recordStatus: $('#record-status'),
+  toast: $('#toast'),
+  contextMenu: $('#timeline-context-menu'),
+  // Semantics
+  semanticModalOverlay: $('#semantic-modal-overlay'),
+  semanticTableBody: $('#semantic-table-body'),
+  semanticStatus: $('#semantic-status'),
+  newWordOverlay: $('#new-word-overlay'),
+  newWordPrompt: $('#new-word-prompt'),
+  newWordText: $('#new-word-text'),
+  newWordType: $('#new-word-type'),
+  newWordDuration: $('#new-word-duration'),
+  newWordSpeed: $('#new-word-speed'),
+  newWordSpeedVal: $('#new-word-speed-val'),
+  newWordShake: $('#new-word-shake'),
+  newWordDof: $('#new-word-dof'),
+  newWordDofVal: $('#new-word-dof-val'),
+  newWordExtra: $('#new-word-extra'),
+};
+
+// ============================================================
+// APPLICATION STATE
+// ============================================================
+const state = {
+  // Model
+  modelLoaded: false,
+  modelScene: null,
+  modelAnimations: [],       // THREE.AnimationClip[]
+  modelDuration: 0,          // seconds
+  modelCenter: new THREE.Vector3(),
+  modelSize: 1,
+  boneAnchors: [],           // {name, object: THREE.Bone}
+
+  // Camera shots (clips on timeline)
+  shots: [],                 // {id, text, type, startTime, endTime, locked, params}
+
+  // Playback
+  currentTime: 0,
+  isPlaying: false,
+  speed: 1.0,
+  animationMixer: null,
+  animationActions: [],
+
+  // Timeline UI state
+  selectedShotId: null,
+  hoveredShotId: null,
+  isDraggingClip: false,
+  isResizingClip: false,
+  dragStartX: 0,
+  dragStartTime: 0,
+  dragOriginalStart: 0,
+  dragOriginalEnd: 0,
+  pixelsPerSecond: DEFAULT_PIXELS_PER_SEC,
+  snapEnabled: true,
+
+  // Display toggles
+  showTrajectory: true,
+  showGrid: true,
+  showBones: true,
+
+  // Default camera view (set when model loads, used by resetView)
+  defaultView: { pos: new THREE.Vector3(5, 3, 8), target: new THREE.Vector3(0, 0, 0) },
+
+  // Recording
+  isRecording: false,
+  mediaRecorder: null,
+  recordedChunks: [],
+
+  // Semantic
+  semanticLibrary: {},       // {word: {type, duration, speed, shake, dof, extra, useCount}}
+  pendingUnknownWords: [],   // words found in input but not in library
+};
+
+// ============================================================
+// THREE.JS ENGINE SETUP
+// ============================================================
+const renderer = new THREE.WebGLRenderer({ canvas:dom.canvas3d, antialias:true, alpha:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比避免内存溢出
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.background = null; // transparent, CSS handles gradient
+scene.fog = new THREE.Fog(0x0a0a15, 15, 60);
+
+const camera = new THREE.PerspectiveCamera(50, 2, 0.1, 200);
+camera.position.set(5, 3, 8);
+camera.lookAt(0, 0, 0);
+
+// Orbit controls for free 3D navigation (disabled during playback)
+const orbitControls = new OrbitControls(camera, renderer.domElement);
+orbitControls.enableDamping = true;
+orbitControls.dampingFactor = 0.08;
+orbitControls.minDistance = 1;
+orbitControls.maxDistance = 50;
+orbitControls.target.set(0, 0, 0);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0x404060, 2.5);
+scene.add(ambientLight);
+const keyLight = new THREE.DirectionalLight(0xffffff, 4);
+keyLight.position.set(8, 12, 8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near = 0.5;
+keyLight.shadow.camera.far = 60;
+keyLight.shadow.camera.left = -20;
+keyLight.shadow.camera.right = 20;
+keyLight.shadow.camera.top = 20;
+keyLight.shadow.camera.bottom = -20;
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0x8888cc, 1.5);
+fillLight.position.set(-4, 2, -4);
+scene.add(fillLight);
+const rimLight = new THREE.DirectionalLight(0xffffff, 2);
+rimLight.position.set(0, 0, 10);
+scene.add(rimLight);
+
+// Ground grid
+const gridHelper = new THREE.GridHelper(20, 20, 0x333355, 0x1a1a33);
+scene.add(gridHelper);
+
+// Trajectory line group
+const trajectoryGroup = new THREE.Group();
+scene.add(trajectoryGroup);
+
+// Bone anchor markers group
+const boneMarkersGroup = new THREE.Group();
+scene.add(boneMarkersGroup);
+
+// GLTF Loader with Draco
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath(DRACO_PATH);
+const gltfLoader = new GLTFLoader();
+gltfLoader.setDRACOLoader(dracoLoader);
+
+// ============================================================
+// RESIZE HANDLER
+// ============================================================
+function resizeRenderer() {
+  const rect = dom.canvasContainer.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  if (w <= 0 || h <= 0) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+  drawTimeline();
+}
+window.addEventListener('resize', resizeRenderer);
+// Initial size
+requestAnimationFrame(() => { resizeRenderer(); });
+
+// ============================================================
+// MODEL LOADING
+// ============================================================
+/**
+ * 加载GLB/GLTF模型，自动居中适配相机
+ * 完整保留Draco压缩支持、双面材质修复法线黑面
+ */
+async function loadModel(file) {
+  dom.modelStatus.textContent = '加载中...';
+  dom.canvasDropHint.style.display = 'none';
+
+  // 销毁旧场景资源，防止内存泄漏
+  clearModelResources();
+
+  const url = URL.createObjectURL(file);
+  try {
+    const gltf = await gltfLoader.loadAsync(url);
+    URL.revokeObjectURL(url);
+
+    const modelScene = gltf.scene;
+
+    // 修复双面材质 - 防止法线黑面
+    modelScene.traverse((node) => {
+      if (node.isMesh) {
+        const mat = node.material;
+        if (mat) {
+          // 处理单材质和多材质
+          const materials = Array.isArray(mat) ? mat : [mat];
+          materials.forEach(m => {
+            m.side = THREE.DoubleSide;
+            m.needsUpdate = true;
+            // 修复法线
+            if (m.normalMap) m.normalMap = null;
+          });
+        }
+        node.castShadow = true;
+        node.receiveShadow = true;
+      }
+    });
+
+    // 自动居中适配相机
+    const box = new THREE.Box3().setFromObject(modelScene);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = box.getSize(new THREE.Vector3()).length();
+    const radius = size / 2;
+
+    // 将模型居中到原点
+    modelScene.position.set(-center.x, -box.min.y, -center.z);
+
+    scene.add(modelScene);
+    state.modelScene = modelScene;
+    state.modelCenter.set(0, (box.max.y - box.min.y) / 2, 0);
+    state.modelSize = radius;
+
+    // 提取动画
+    state.modelAnimations = gltf.animations || [];
+    if (state.modelAnimations.length > 0) {
+      state.animationMixer = new THREE.AnimationMixer(modelScene);
+      state.animationActions = state.modelAnimations.map(clip => {
+        const action = state.animationMixer.clipAction(clip);
+        action.play();
+        return action;
+      });
+      state.modelDuration = Math.max(...state.modelAnimations.map(c => c.duration));
+    } else {
+      state.modelDuration = 10; // 默认10秒
+    }
+
+    // 提取骨骼锚点
+    state.boneAnchors = [];
+    modelScene.traverse((node) => {
+      if (node.isBone) {
+        state.boneAnchors.push({ name:node.name, object:node });
+      }
+    });
+    updateBoneMarkers();
+
+    // 调整相机适配模型
+    const dist = radius * 2.5;
+    camera.position.set(dist * 0.6, dist * 0.4, dist * 0.8);
+    orbitControls.target.copy(state.modelCenter);
+    orbitControls.update();
+    // 保存默认视角用于回正
+    state.defaultView = { pos: camera.position.clone(), target: state.modelCenter.clone() };
+
+    state.modelLoaded = true;
+    state.shots = []; // 切换模型自动清空相机轨道
+    state.selectedShotId = null;
+    state.currentTime = 0;
+    state.isPlaying = false;
+
+    dom.modelStatus.textContent = `已加载 | 动画时长: ${state.modelDuration.toFixed(1)}s | 骨骼: ${state.boneAnchors.length}个`;
+    dom.totalTimeDisplay.textContent = state.modelDuration.toFixed(2) + 's';
+    dom.currentTimeDisplay.textContent = '0.00s';
+    dom.canvasOverlay.textContent = '就绪';
+    updateShotList();
+    drawTimeline();
+    updateBoneMarkers();
+
+    showToast('✅ 模型加载成功');
+  } catch (err) {
+    console.error('Model load error:', err);
+    dom.modelStatus.textContent = '加载失败: ' + err.message;
+    showToast('❌ 模型加载失败');
+    dom.canvasDropHint.style.display = 'flex';
+  }
+}
+
+/** 完整销毁旧场景资源，无内存泄漏 */
+function clearModelResources() {
+  // 停止动画
+  if (state.animationMixer) {
+    state.animationMixer.stopAllAction();
+    state.animationMixer = null;
+  }
+  state.animationActions = [];
+
+  // 移除模型
+  if (state.modelScene) {
+    disposeObject3D(state.modelScene);
+    scene.remove(state.modelScene);
+    state.modelScene = null;
+  }
+
+  // 清理轨迹线
+  while (trajectoryGroup.children.length > 0) {
+    const child = trajectoryGroup.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    trajectoryGroup.remove(child);
+  }
+
+  // 清理骨骼标记
+  while (boneMarkersGroup.children.length > 0) {
+    const child = boneMarkersGroup.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    boneMarkersGroup.remove(child);
+  }
+
+  state.modelAnimations = [];
+  state.modelDuration = 0;
+  state.boneAnchors = [];
+  state.modelLoaded = false;
+}
+
+function disposeObject3D(obj) {
+  obj.traverse((node) => {
+    if (node.geometry) node.geometry.dispose();
+    if (node.material) {
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach(m => {
+        // Dispose textures
+        for (const key in m) {
+          if (m[key] && m[key].isTexture) {
+            m[key].dispose();
+          }
+        }
+        m.dispose();
+      });
+    }
+  });
+}
+
+// ============================================================
+// TEST MODEL - 跳跃角色 (用于测试运镜系统)
+// ============================================================
+/**
+ * 生成程序化跳跃3D角色模型，包含完整骨骼和跳跃动画
+ * 可直接用于测试所有运镜类型、骨骼锚点、时间轴功能
+ */
+function loadTestModel() {
+  dom.modelStatus.textContent = '生成测试模型中...';
+  dom.canvasDropHint.style.display = 'none';
+
+  // 销毁旧资源
+  clearModelResources();
+
+  const modelGroup = new THREE.Group();
+  modelGroup.name = 'TestJumper';
+
+  // ── 材质定义 ──
+  const skinMat    = new THREE.MeshStandardMaterial({ color:0xffcc88, roughness:0.5, metalness:0.0 }); // 肤色
+  const shirtMat   = new THREE.MeshStandardMaterial({ color:0x4488ff, roughness:0.35, metalness:0.05 }); // 蓝衣
+  const backMat    = new THREE.MeshStandardMaterial({ color:0x2255aa, roughness:0.4, metalness:0.1 }); // 背部深蓝
+  const pantsMat   = new THREE.MeshStandardMaterial({ color:0x334455, roughness:0.45, metalness:0.05 }); // 裤子
+  const shoeMat    = new THREE.MeshStandardMaterial({ color:0xdd4444, roughness:0.35, metalness:0.1 }); // 红鞋
+  const eyeWhiteMat= new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.05, metalness:0 });
+  const irisMat    = new THREE.MeshStandardMaterial({ color:0x228833, roughness:0.05, metalness:0.1 });
+  const pupilMat   = new THREE.MeshStandardMaterial({ color:0x000000, roughness:0, metalness:0.5 });
+  const hairMat    = new THREE.MeshStandardMaterial({ color:0x332211, roughness:0.6, metalness:0 });
+  const mouthMat   = new THREE.MeshStandardMaterial({ color:0xcc5555, roughness:0.2, metalness:0 });
+  const backpackMat= new THREE.MeshStandardMaterial({ color:0xff8822, roughness:0.3, metalness:0.1 }); // 橙色背包
+  const antennaMat = new THREE.MeshStandardMaterial({ color:0xffdd00, roughness:0.1, metalness:0.4, emissive:0xffdd00, emissiveIntensity:0.6 });
+  const beltMat    = new THREE.MeshStandardMaterial({ color:0x886644, roughness:0.3, metalness:0.2 }); // 棕色腰带
+  const arrowMat   = new THREE.MeshStandardMaterial({ color:0x00ff88, roughness:0.2, metalness:0, emissive:0x00ff88, emissiveIntensity:0.3 });
+
+  // ── 身子 + 衣服 (前后明显区分) ──
+  const torsoGroup = new THREE.Group();
+  torsoGroup.name = 'Spine';
+
+  // 躯干主体 - 略扁椭圆体，前平后圆
+  const bodyGeo = new THREE.CapsuleGeometry(0.38, 0.65, 8, 14);
+  const body = new THREE.Mesh(bodyGeo, shirtMat);
+  body.position.y = 0.72;
+  body.castShadow = true; body.receiveShadow = true;
+  torsoGroup.add(body);
+
+  // 胸前装饰 - 只在前方(+Z)，表明正面
+  const chestPlateGeo = new THREE.BoxGeometry(0.35, 0.3, 0.06);
+  const chestPlate = new THREE.Mesh(chestPlateGeo, new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.2, metalness:0.3 }));
+  chestPlate.position.set(0, 0.82, 0.36);
+  torsoGroup.add(chestPlate);
+  // 胸前星星标志
+  const starGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 5);
+  const star = new THREE.Mesh(starGeo, new THREE.MeshStandardMaterial({ color:0xffdd00, roughness:0.1, metalness:0.4, emissive:0xffdd00, emissiveIntensity:0.4 }));
+  star.position.set(0, 0.82, 0.40);
+  torsoGroup.add(star);
+
+  // 背部 - 橙色背包(只在-Z方向)，明显区别于正面
+  const backpackGeo = new THREE.BoxGeometry(0.3, 0.38, 0.18);
+  const backpack = new THREE.Mesh(backpackGeo, backpackMat);
+  backpack.position.set(0, 0.82, -0.38);
+  backpack.castShadow = true;
+  torsoGroup.add(backpack);
+  // 背包口袋
+  const pocketGeo = new THREE.BoxGeometry(0.2, 0.15, 0.03);
+  const pocket = new THREE.Mesh(pocketGeo, new THREE.MeshStandardMaterial({ color:0xffaa44, roughness:0.2, metalness:0.1 }));
+  pocket.position.set(0, 0.82, -0.48);
+  torsoGroup.add(pocket);
+
+  // 腰带 - 环在身体中部
+  const beltGeo = new THREE.TorusGeometry(0.37, 0.05, 8, 16);
+  const belt = new THREE.Mesh(beltGeo, beltMat);
+  belt.position.y = 0.55;
+  belt.rotation.x = Math.PI / 2;
+  torsoGroup.add(belt);
+  // 腰带扣(前方)
+  const buckleGeo = new THREE.BoxGeometry(0.08, 0.06, 0.04);
+  const buckle = new THREE.Mesh(buckleGeo, new THREE.MeshStandardMaterial({ color:0xffdd00, roughness:0.1, metalness:0.8 }));
+  buckle.position.set(0, 0.55, 0.38);
+  torsoGroup.add(buckle);
+
+  modelGroup.add(torsoGroup);
+
+  // ── 头部 (面朝+Z) — 身体顶部1.425，头半径0.32，居中于1.745 ──
+  const headGroup = new THREE.Group();
+  headGroup.position.y = 1.72;
+  headGroup.name = 'Head';
+
+  // 头部主体 - 略扁
+  const headGeo = new THREE.SphereGeometry(0.32, 20, 20);
+  const head = new THREE.Mesh(headGeo, skinMat);
+  head.scale.set(1, 1.05, 0.9); // 前后略扁，左右正常
+  head.castShadow = true; head.receiveShadow = true;
+  headGroup.add(head);
+
+  // 头发 - 只在顶部和后方
+  const hairGeo = new THREE.SphereGeometry(0.34, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const hair = new THREE.Mesh(hairGeo, hairMat);
+  hair.scale.set(1.02, 0.65, 1.02);
+  hair.position.y = 0.12;
+  hair.castShadow = true;
+  headGroup.add(hair);
+
+  // 眉毛 - 在眼睛上方(+Z方向是前)
+  const browGeo = new THREE.BoxGeometry(0.13, 0.03, 0.03);
+  const browL = new THREE.Mesh(browGeo, hairMat);
+  browL.position.set(-0.09, 0.08, 0.28);
+  headGroup.add(browL);
+  const browR = new THREE.Mesh(browGeo, hairMat);
+  browR.position.set(0.09, 0.08, 0.28);
+  headGroup.add(browR);
+
+  // 眼白
+  const eGeo = new THREE.SphereGeometry(0.09, 10, 10);
+  const eyeL = new THREE.Mesh(eGeo, eyeWhiteMat);
+  eyeL.position.set(-0.1, 0.02, 0.25);
+  headGroup.add(eyeL);
+  const eyeR = new THREE.Mesh(eGeo, eyeWhiteMat);
+  eyeR.position.set(0.1, 0.02, 0.25);
+  headGroup.add(eyeR);
+
+  // 虹膜(绿色大眼)
+  const iGeo = new THREE.SphereGeometry(0.06, 8, 8);
+  const irisL = new THREE.Mesh(iGeo, irisMat);
+  irisL.position.set(-0.1, 0.02, 0.32);
+  headGroup.add(irisL);
+  const irisR = new THREE.Mesh(iGeo, irisMat);
+  irisR.position.set(0.1, 0.02, 0.32);
+  headGroup.add(irisR);
+
+  // 瞳孔
+  const pGeo = new THREE.SphereGeometry(0.03, 6, 6);
+  const pL = new THREE.Mesh(pGeo, pupilMat);
+  pL.position.set(-0.1, 0.02, 0.36);
+  headGroup.add(pL);
+  const pR = new THREE.Mesh(pGeo, pupilMat);
+  pR.position.set(0.1, 0.02, 0.36);
+  headGroup.add(pR);
+
+  // 鼻子 - 在前方
+  const noseGeo = new THREE.ConeGeometry(0.04, 0.08, 6);
+  const nose = new THREE.Mesh(noseGeo, new THREE.MeshStandardMaterial({ color:0xffbb99, roughness:0.4 }));
+  nose.position.set(0, -0.02, 0.28);
+  nose.rotation.x = Math.PI / 2;
+  headGroup.add(nose);
+
+  // 嘴巴 - 在前方
+  const mouthGeo = new THREE.TorusGeometry(0.05, 0.015, 6, 10, Math.PI);
+  const mouthMesh = new THREE.Mesh(mouthGeo, mouthMat);
+  mouthMesh.position.set(0, -0.08, 0.27);
+  mouthMesh.rotation.z = Math.PI;
+  headGroup.add(mouthMesh);
+
+  // 耳朵 - 在两侧(X轴方向)
+  const earGeo = new THREE.SphereGeometry(0.06, 8, 8);
+  const earL = new THREE.Mesh(earGeo, skinMat);
+  earL.position.set(-0.3, 0.02, 0);
+  earL.scale.set(0.4, 0.7, 0.6);
+  headGroup.add(earL);
+  const earR = new THREE.Mesh(earGeo, skinMat);
+  earR.position.set(0.3, 0.02, 0);
+  earR.scale.set(0.4, 0.7, 0.6);
+  headGroup.add(earR);
+
+  // 天线 - 头顶，明确上下方向
+  const antennaStickGeo = new THREE.CylinderGeometry(0.02, 0.03, 0.2, 8);
+  const antennaStick = new THREE.Mesh(antennaStickGeo, new THREE.MeshStandardMaterial({ color:0x888888, roughness:0.2, metalness:0.8 }));
+  antennaStick.position.y = 0.28;
+  headGroup.add(antennaStick);
+  const antennaBallGeo = new THREE.SphereGeometry(0.05, 8, 8);
+  const antennaBall = new THREE.Mesh(antennaBallGeo, antennaMat);
+  antennaBall.position.y = 0.39;
+  headGroup.add(antennaBall);
+
+  modelGroup.add(headGroup);
+
+  // ── 左臂 (蓝色袖子) ──
+  const leftArm = new THREE.Group();
+  leftArm.position.set(-0.55, 1.2, 0);
+  leftArm.name = 'LeftArm';
+  const luaGeo = new THREE.CapsuleGeometry(0.1, 0.42, 6, 8);
+  const lua = new THREE.Mesh(luaGeo, new THREE.MeshStandardMaterial({ color:0x3366cc, roughness:0.4, metalness:0.05 })); // 蓝袖
+  lua.position.y = -0.12;
+  lua.castShadow = true;
+  leftArm.add(lua);
+  // 左手 - 肤色
+  const lHandGeo = new THREE.SphereGeometry(0.11, 8, 8);
+  const lHand = new THREE.Mesh(lHandGeo, skinMat);
+  lHand.position.y = -0.4;
+  leftArm.add(lHand);
+  modelGroup.add(leftArm);
+
+  // ── 右臂 (红色袖子 - 明显区分左右) ──
+  const rightArm = new THREE.Group();
+  rightArm.position.set(0.55, 1.2, 0);
+  rightArm.name = 'RightArm';
+  const ruaGeo = new THREE.CapsuleGeometry(0.1, 0.42, 6, 8);
+  const rua = new THREE.Mesh(ruaGeo, new THREE.MeshStandardMaterial({ color:0xcc3333, roughness:0.4, metalness:0.05 })); // 红袖
+  rua.position.y = -0.12;
+  rua.castShadow = true;
+  rightArm.add(rua);
+  const rHandGeo = new THREE.SphereGeometry(0.11, 8, 8);
+  const rHand = new THREE.Mesh(rHandGeo, skinMat);
+  rHand.position.y = -0.4;
+  rightArm.add(rHand);
+  modelGroup.add(rightArm);
+
+  // ── 左腿 ──
+  const leftLeg = new THREE.Group();
+  leftLeg.position.set(-0.18, 0.32, 0);
+  leftLeg.name = 'LeftLeg';
+  const lThighGeo = new THREE.CapsuleGeometry(0.13, 0.38, 6, 8);
+  const lThigh = new THREE.Mesh(lThighGeo, pantsMat);
+  lThigh.position.y = -0.08;
+  lThigh.castShadow = true;
+  leftLeg.add(lThigh);
+  const lCalfGeo = new THREE.CapsuleGeometry(0.1, 0.33, 6, 8);
+  const lCalf = new THREE.Mesh(lCalfGeo, pantsMat);
+  lCalf.position.y = -0.5;
+  lCalf.castShadow = true;
+  leftLeg.add(lCalf);
+  const lShoeGeo = new THREE.BoxGeometry(0.2, 0.08, 0.28);
+  const lShoe = new THREE.Mesh(lShoeGeo, shoeMat);
+  lShoe.position.set(0, -0.72, 0.06);
+  lShoe.castShadow = true;
+  leftLeg.add(lShoe);
+  modelGroup.add(leftLeg);
+
+  // ── 右腿 ──
+  const rightLeg = new THREE.Group();
+  rightLeg.position.set(0.18, 0.32, 0);
+  rightLeg.name = 'RightLeg';
+  const rThighGeo = new THREE.CapsuleGeometry(0.13, 0.38, 6, 8);
+  const rThigh = new THREE.Mesh(rThighGeo, pantsMat);
+  rThigh.position.y = -0.08;
+  rThigh.castShadow = true;
+  rightLeg.add(rThigh);
+  const rCalfGeo = new THREE.CapsuleGeometry(0.1, 0.33, 6, 8);
+  const rCalf = new THREE.Mesh(rCalfGeo, pantsMat);
+  rCalf.position.y = -0.5;
+  rCalf.castShadow = true;
+  rightLeg.add(rCalf);
+  const rShoeGeo = new THREE.BoxGeometry(0.2, 0.08, 0.28);
+  const rShoe = new THREE.Mesh(rShoeGeo, shoeMat);
+  rShoe.position.set(0, -0.72, 0.06);
+  rShoe.castShadow = true;
+  rightLeg.add(rShoe);
+  modelGroup.add(rightLeg);
+
+  // ── 地面方向箭头 (明确正面朝向) ──
+  const arrowGroup = new THREE.Group();
+  arrowGroup.name = 'DirectionArrow';
+  // 箭头主体
+  const arrowBodyGeo = new THREE.BoxGeometry(0.12, 0.02, 0.4);
+  const arrowBody = new THREE.Mesh(arrowBodyGeo, arrowMat);
+  arrowBody.position.z = 0.25;
+  arrowGroup.add(arrowBody);
+  // 箭头尖
+  const tipGeo = new THREE.ConeGeometry(0.1, 0.2, 4);
+  const tip = new THREE.Mesh(tipGeo, arrowMat);
+  tip.position.z = 0.5;
+  tip.rotation.x = -Math.PI / 2;
+  arrowGroup.add(tip);
+  arrowGroup.position.y = 0.02;
+  arrowGroup.position.z = -0.2;
+  modelGroup.add(arrowGroup);
+
+  // ── 添加场景并居中 ──
+  const box = new THREE.Box3().setFromObject(modelGroup);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  modelGroup.position.set(-center.x, -box.min.y, -center.z);
+  scene.add(modelGroup);
+
+  state.modelScene = modelGroup;
+  state.modelCenter.set(0, (box.max.y - box.min.y) / 2, 0);
+  state.modelSize = Math.max((box.max.y - box.min.y) * 0.8, 1.2);
+
+  // ── 静态模型，不需要跳跃动画 ──
+  state.modelAnimations = [];
+  state.modelDuration = 10; // 默认10秒观察窗口
+  state.animationMixer = null;
+  state.animationActions = [];
+
+  // 提取骨骼锚点
+  state.boneAnchors = [];
+  modelGroup.traverse((node) => {
+    if (node.name && node.name !== 'TestJumper' && !node.isMesh) {
+      state.boneAnchors.push({ name:node.name, object:node });
+    }
+  });
+  updateBoneMarkers();
+
+  // 调整相机适配模型（前方是+Z，相机放在前方偏上）
+  const box2 = new THREE.Box3().setFromObject(modelGroup);
+  const size = box2.getSize(new THREE.Vector3()).length();
+  const radius = size / 2;
+  const dist = radius * 2.5;
+  camera.position.set(dist * 0.3, dist * 0.55, dist * 0.85);
+  orbitControls.target.copy(state.modelCenter);
+  orbitControls.update();
+  state.defaultView = { pos: camera.position.clone(), target: state.modelCenter.clone() };
+
+  state.modelLoaded = true;
+  state.shots = [];
+  state.selectedShotId = null;
+  state.currentTime = 0;
+  state.isPlaying = false;
+
+  dom.modelStatus.textContent = `🧪 角色模型 | 静态 | 锚点:${state.boneAnchors.length}个 | 👁️正面=天线+双眼`;
+  dom.totalTimeDisplay.textContent = state.modelDuration.toFixed(2) + 's';
+  dom.currentTimeDisplay.textContent = '0.00s';
+  dom.canvasOverlay.textContent = '就绪 - 正面朝向你 (+Z)';
+  updateShotList();
+  drawTimeline();
+  updateBoneMarkers();
+
+  showToast('🧪 静态角色已加载 | 正面=天线眼 | 从正面/侧面/背面均可指定镜头方向');
+}
+
+// ============================================================
+// BONE MARKERS
+// ============================================================
+function updateBoneMarkers() {
+  while (boneMarkersGroup.children.length > 0) {
+    const c = boneMarkersGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    boneMarkersGroup.remove(c);
+  }
+  if (!state.showBones || !state.modelScene) return;
+
+  const sphereGeo = new THREE.SphereGeometry(0.08, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color:0xf59e0b });
+
+  state.boneAnchors.forEach(bone => {
+    const marker = new THREE.Mesh(sphereGeo, mat.clone());
+    boneMarkersGroup.add(marker);
+    // Position will update in render loop
+  });
+}
+
+// ============================================================
+// CAMERA MOTION ENGINE
+// ============================================================
+/**
+ * 运镜引擎：根据shot定义计算当前时间点的相机位置和目标
+ * 支持所有运镜类型：环绕、希区柯克、螺旋、推拉、平移、俯仰、升降、骨骼跟随、自定义轨迹
+ */
+function evaluateCameraMotion(shot, t, modelCenter, modelSize) {
+  // t is normalized [0,1] within shot duration
+  const params = shot.params || {};
+  const type = shot.type || 'orbit';
+  const speed = params.speed || 1;
+  const shake = params.shake || 0;
+  const dof = params.dof || 0;
+  const extra = params.extra || {};
+
+  // ── 确定镜头注视中心：优先用身体部位，否则用模型中心 ──
+  let center = modelCenter.clone();
+  if (extra.targetBone) {
+    const boneAnchor = state.boneAnchors.find(b => b.name === extra.targetBone);
+    if (boneAnchor && boneAnchor.object) {
+      const wp = new THREE.Vector3();
+      boneAnchor.object.getWorldPosition(wp);
+      center.copy(wp);
+    }
+  }
+  let camPos = new THREE.Vector3();
+  let camTarget = center.clone();
+  let fov = 50;
+
+  // Adjust t based on speed
+  const tEff = Math.min(1, Math.max(0, t * speed));
+
+  switch (type) {
+    case 'orbit': {
+      // 环绕：相机绕模型中心做圆周运动
+      const radius = extra.radius || (modelSize * 2);
+      const height = extra.height || (modelSize * 0.6);
+      const angleStart = (extra.angleStart || 0) * Math.PI / 180;
+      const angle = angleStart + tEff * Math.PI * 2 * (extra.loops || 1);
+      camPos.set(
+        center.x + Math.cos(angle) * radius,
+        center.y + height,
+        center.z + Math.sin(angle) * radius
+      );
+      break;
+    }
+
+    case 'hitchcock': {
+      // 希区柯克变焦：相机后退同时FOV放大（或反之），保持主体大小不变
+      const zoomRange = extra.zoomRange || 3;
+      const baseDist = modelSize * 2;
+      // tEff=0: close+wide, tEff=1: far+tele
+      const dist = baseDist + tEff * zoomRange;
+      const baseFov = 50;
+      const targetFov = 15;
+      fov = baseFov + tEff * (targetFov - baseFov);
+      const angle = (extra.angle || 0) * Math.PI / 180;
+      camPos.set(
+        center.x + Math.cos(angle) * dist,
+        center.y + (extra.height || modelSize * 0.5),
+        center.z + Math.sin(angle) * dist
+      );
+      break;
+    }
+
+    case 'spiral': {
+      // 螺旋环绕：环绕的同时上升或下降
+      const radius = extra.radius || (modelSize * 2.5);
+      const spirals = extra.spirals || 2;
+      const heightTotal = extra.height || (modelSize * 1.5);
+      const angle = tEff * Math.PI * 2 * spirals;
+      const height = center.y + heightTotal * (tEff - 0.5);
+      camPos.set(
+        center.x + Math.cos(angle) * radius,
+        height,
+        center.z + Math.sin(angle) * radius
+      );
+      break;
+    }
+
+    case 'pushIn': {
+      // 推近：相机从远处向模型靠近
+      const startDist = extra.startDistance || (modelSize * 4);
+      const endDist = extra.distance || (modelSize * 1.2);
+      const dist = startDist + tEff * (endDist - startDist);
+      const angle = (extra.angle || 0) * Math.PI / 180;
+      const height = extra.height || (modelSize * 0.5);
+      camPos.set(
+        center.x + Math.cos(angle) * dist,
+        center.y + height,
+        center.z + Math.sin(angle) * dist
+      );
+      break;
+    }
+
+    case 'pullOut': {
+      // 拉远
+      const startDist = extra.startDistance || (modelSize * 1.5);
+      const endDist = extra.distance || (modelSize * 4);
+      const dist = startDist + tEff * (endDist - startDist);
+      const angle = (extra.angle || 0) * Math.PI / 180;
+      const height = extra.height || (modelSize * 0.5);
+      camPos.set(
+        center.x + Math.cos(angle) * dist,
+        center.y + height,
+        center.z + Math.sin(angle) * dist
+      );
+      break;
+    }
+
+    case 'pan': {
+      // 平移：相机围绕模型做水平弧线运动
+      const startAngle = (extra.startAngle || -45) * Math.PI / 180;
+      const endAngle = (extra.angle || 45) * Math.PI / 180;
+      const angle = startAngle + tEff * (endAngle - startAngle);
+      const dist = extra.distance || (modelSize * 2.5);
+      const height = extra.height || (modelSize * 0.5);
+      camPos.set(
+        center.x + Math.sin(angle) * dist,
+        center.y + height,
+        center.z + Math.cos(angle) * dist
+      );
+      break;
+    }
+
+    case 'tilt': {
+      // 俯仰
+      const dist = extra.distance || (modelSize * 2.5);
+      const startHeight = extra.startHeight || (modelSize * 2);
+      const endHeight = extra.height || (-modelSize * 1);
+      const height = startHeight + tEff * (endHeight - startHeight);
+      const angle = (extra.angle || 0) * Math.PI / 180;
+      camPos.set(
+        center.x + Math.cos(angle) * dist,
+        center.y + height,
+        center.z + Math.sin(angle) * dist
+      );
+      break;
+    }
+
+    case 'crane': {
+      // 升降
+      const dist = extra.distance || (modelSize * 2.5);
+      const startHeight = extra.startHeight || (-modelSize * 1);
+      const endHeight = extra.height || (modelSize * 2);
+      const height = startHeight + tEff * (endHeight - startHeight);
+      const angle = (extra.angle || 0) * Math.PI / 180;
+      camPos.set(
+        center.x + Math.cos(angle) * dist,
+        center.y + height,
+        center.z + Math.sin(angle) * dist
+      );
+      break;
+    }
+
+    case 'followBone': {
+      // 骨骼跟随：相机跟踪特定骨骼
+      const boneName = extra.boneName || '';
+      const boneAnchor = state.boneAnchors.find(b => b.name === boneName);
+      if (boneAnchor && state.modelScene) {
+        const worldPos = new THREE.Vector3();
+        boneAnchor.object.getWorldPosition(worldPos);
+        camTarget.copy(worldPos);
+        const offset = extra.offset || { x:2, y:1, z:3 };
+        camPos.set(
+          worldPos.x + (offset.x || 2),
+          worldPos.y + (offset.y || 1),
+          worldPos.z + (offset.z || 3)
+        );
+      } else {
+        // Fallback to orbit
+        const radius = modelSize * 2;
+        const angle = tEff * Math.PI * 2;
+        camPos.set(center.x + Math.cos(angle) * radius, center.y + modelSize * 0.5, center.z + Math.sin(angle) * radius);
+      }
+      break;
+    }
+
+    case 'custom': {
+      // 自定义三维轨迹 - 通过关键点插值
+      const keyframes = extra.keyframes || [
+        { t:0, pos:[modelSize*3, modelSize, modelSize*3], target:[0,modelSize*0.5,0] },
+        { t:1, pos:[-modelSize*2, modelSize*0.5, -modelSize*2], target:[0,modelSize*0.3,0] }
+      ];
+      // Find surrounding keyframes
+      let k0 = keyframes[0], k1 = keyframes[keyframes.length-1];
+      for (let i = 0; i < keyframes.length - 1; i++) {
+        if (tEff >= keyframes[i].t && tEff <= keyframes[i+1].t) {
+          k0 = keyframes[i]; k1 = keyframes[i+1]; break;
+        }
+      }
+      const range = k1.t - k0.t;
+      const frac = range > 0 ? (tEff - k0.t) / range : 0;
+      // Smoothstep easing
+      const ease = frac * frac * (3 - 2 * frac);
+      camPos.set(
+        k0.pos[0] + (k1.pos[0] - k0.pos[0]) * ease,
+        k0.pos[1] + (k1.pos[1] - k0.pos[1]) * ease,
+        k0.pos[2] + (k1.pos[2] - k0.pos[2]) * ease
+      );
+      if (k0.target && k1.target) {
+        camTarget.set(
+          k0.target[0] + (k1.target[0] - k0.target[0]) * ease,
+          k0.target[1] + (k1.target[1] - k0.target[1]) * ease,
+          k0.target[2] + (k1.target[2] - k0.target[2]) * ease
+        );
+      }
+      break;
+    }
+
+    case 'fixed': {
+      // 定点拍摄
+      const pos = extra.position || [modelSize*2, modelSize, modelSize*2];
+      const tgt = extra.target || [0, modelSize*0.5, 0];
+      camPos.set(pos[0], pos[1], pos[2]);
+      camTarget.set(tgt[0], tgt[1], tgt[2]);
+      break;
+    }
+
+    default: {
+      // Default orbit
+      const radius = modelSize * 2;
+      const angle = tEff * Math.PI * 2;
+      camPos.set(center.x + Math.cos(angle) * radius, center.y + modelSize * 0.5, center.z + Math.sin(angle) * radius);
+    }
+  }
+
+  // 应用抖动（分级：0无/1轻微/2中等/3强烈）
+  if (shake > 0) {
+    const shakeAmps = [0, 0.02, 0.06, 0.15]; // 对应等级幅度
+    const amp = shakeAmps[Math.min(3, Math.floor(shake))] * modelSize;
+    const seed = shot.id.charCodeAt(0) || 1;
+    // 分层抖动：高频+低频叠加
+    const hf = Math.sin(t * 37.7 + seed) * amp * 0.6;
+    const lf = Math.sin(t * 7.3 + seed * 1.7) * amp * 0.4;
+    camPos.x += hf + lf;
+    camPos.y += Math.cos(t * 41.1 + seed) * amp * 0.5 + Math.cos(t * 5.9 + seed * 0.7) * amp * 0.3;
+  }
+
+  return { position:camPos, target:camTarget, fov, dof };
+}
+
+/**
+ * 防穿模：检测相机到目标的射线是否与模型相交，若相交则沿反方向推出
+ */
+function antiPenetration(camPos, target, modelSize) {
+  if (!state.modelScene) return camPos;
+  const dir = new THREE.Vector3().subVectors(camPos, target).normalize();
+  const dist = camPos.distanceTo(target);
+  const raycaster = new THREE.Raycaster(target, dir, 0, dist);
+  const intersects = raycaster.intersectObject(state.modelScene, true);
+  if (intersects.length > 0) {
+    // 有碰撞，沿反方向推到交点外
+    const pushDist = intersects[0].distance + modelSize * 0.3;
+    return target.clone().add(dir.multiplyScalar(Math.max(pushDist, modelSize * 0.8)));
+  }
+  return camPos;
+}
+
+// ============================================================
+// SHOT PARSING - 智能语义解析引擎
+// ============================================================
+/**
+ * 自然语言语义解析：理解用户描述，自动提取运动类型和参数
+ * 无需手动选择，直接生成完整镜头配置
+ *
+ * 示例输入：
+ *   "中等环绕人物一圈" → orbit, speed:1, loops:1, distance:medium
+ *   "快速推近特写3秒" → pushIn, speed:1.8, duration:3, distance:close
+ *   "0-3秒螺旋上升、3-6秒希区柯克变焦" → 两段带时间区间
+ *   "慢速从左到右平移" → pan, speed:0.5, angle:90
+ */
+function parseShots(text) {
+  const shots = [];
+
+  // 时间段正则：「0-3秒环绕」或「3-6s orbit」或「0~3秒 环绕」
+  const timeSegmentRe = /(\d+(?:\.\d+)?)\s*[-~到至]\s*(\d+(?:\.\d+)?)\s*(?:秒|s|sec)?\s*[，,]*\s*([^,，;；\n]+)/gi;
+  const timeSegments = [];
+  let match;
+
+  while ((match = timeSegmentRe.exec(text)) !== null) {
+    timeSegments.push({
+      start: parseFloat(match[1]),
+      end: parseFloat(match[2]),
+      desc: match[3].trim(),
+    });
+  }
+
+  if (timeSegments.length > 0) {
+    timeSegments.forEach((seg) => {
+      const shot = createShotFromNL(seg.desc, seg.start, seg.end);
+      shots.push(shot);
+    });
+  } else {
+    // 无时间段，按逗号/分号/换行分割，均匀分配时间
+    const segments = text.split(/[,，;；\n]+/).map(s => s.trim()).filter(s => s.length > 0);
+    if (segments.length === 0) return shots;
+
+    // 为每段计算自然时长
+    const shotsWithDuration = segments.map(desc => {
+      const features = extractFeatures(desc);
+      const dur = features.duration || estimateDuration(features);
+      return { desc, features, duration: dur };
+    });
+
+    const totalDur = Math.max(state.modelDuration,
+      shotsWithDuration.reduce((sum, s) => sum + s.duration, 0));
+
+    let cursor = 0;
+    shotsWithDuration.forEach(({ desc, features, duration }) => {
+      const shot = buildShotFromFeatures(features, desc, cursor, cursor + duration);
+      shots.push(shot);
+      cursor += duration;
+    });
+  }
+
+  return shots;
+}
+
+/**
+ * NL入口：从一段自然语言描述创建镜头
+ * 自动提取所有语义特征，无需用户手动选择
+ */
+function createShotFromNL(desc, startTime, endTime) {
+  const features = extractFeatures(desc);
+  return buildShotFromFeatures(features, desc, startTime, endTime);
+}
+
+/**
+ * 核心特征提取：从中文自然语言中提取运镜参数
+ * 这才是"智能"的关键——解析自然语言而不是关键词匹配
+ */
+/**
+ * 核心NL理解引擎 - 基于意图评分而非关键词匹配
+ * 理解用户的自然语言表达，不需要用户背诵特定指令格式
+ *
+ * 设计理念：
+ * 1. 每句话给所有可能的意图打分，取最高分
+ * 2. 覆盖大量日常口语表达（看看/转转/瞅瞅/瞄一眼...）
+ * 3. 不确定时取最合理的默认值
+ * 4. 多个维度独立评分后组合
+ */
+function extractFeatures(text) {
+  const t = text;
+
+  // ═══════════════════════════════════════════
+  // 运动类型 — 意图评分，选最高分
+  // ═══════════════════════════════════════════
+  const typeScores = {
+    orbit:     0,
+    pushIn:    0,
+    pullOut:   0,
+    pan:       0,
+    tilt:      0,
+    crane:     0,
+    hitchcock: 0,
+    spiral:    0,
+    followBone:0,
+    fixed:     0,
+  };
+
+  // 环绕/旋转类 — 大量日常表达
+  const orbitPat = /环绕|旋转|绕圈|绕着|绕|orbit|circle|rotate|round|转圈|围着|转一转|转一下|转转|转个圈|兜圈|兜一圈|转悠|打转|环顾|环视|扫一圈|看一圈|看一周|四周看看|转着看|围着看|打量|端详|审视/i;
+  if (orbitPat.test(t)) typeScores.orbit += 10;
+  // "转一转" "兜一圈" 这类轻松表达加强orbit倾向
+  if (/转一转|转转|转圈|兜圈|兜一|转一个|转个|转悠|打转/i.test(t)) typeScores.orbit += 5;
+
+  // 推近类 — 靠近看细节
+  if (/推近|推进|靠近|拉近|zoom\s*in|push\s*in|向前推|往前推|贴上去|凑近|凑过去|近一点|走近|往前|靠前|特写|放大|放大点|看看细节|看清楚|看仔细|仔细看|瞧瞧|端详|细看|怼脸|贴近看|靠近看/i.test(t)) typeScores.pushIn += 10;
+  if (/凑近|凑过去|近一点|仔细看|看清楚|贴近|怼脸/i.test(t)) typeScores.pushIn += 4;
+
+  // 拉远类 — 看整体
+  if (/拉远|远离|拉出|zoom\s*out|pull\s*out|向后退|往后拉|远一点|退后|退远|离远|看整体|看全貌|看全景|全景|广角|拉全景|鸟瞰整体|远看|远处看|站远点/i.test(t)) typeScores.pullOut += 10;
+  if (/远一点|看整体|全景|全貌|站远|远处看/i.test(t)) typeScores.pullOut += 4;
+
+  // 平移类 — 横着看
+  if (/平移|横移|pan|左右移动|水平移动|从左到右|从右到左|横着|扫过|横扫|横向|左右看|左看右看|扫视|掠过|划过去|平移过去/i.test(t)) typeScores.pan += 10;
+
+  // 俯仰类 — 上下看
+  if (/俯仰|tilt|上下摇|抬头看|低头看|仰望|俯视|从上往下|从下往上|仰角|俯角|上下打量|从上到下|从下到上/i.test(t)) typeScores.tilt += 10;
+
+  // 升降类
+  if (/升降|crane|上升|下降|提高视角|降低视角|升高视角|升起来|降下去|抬高|压低/i.test(t)) typeScores.crane += 10;
+
+  // 希区柯克变焦
+  if (/希区柯克|dolly\s*zoom|变焦|推拉变焦|背景压缩|透视变化/i.test(t)) typeScores.hitchcock += 10;
+
+  // 螺旋
+  if (/螺旋|spiral|盘旋|螺旋上升|螺旋下降|旋转上升|绕上去|绕下来/i.test(t)) typeScores.spiral += 10;
+
+  // 固定
+  if (/固定|静止|定点|不动|fixed|站住|停住|定住|别动/i.test(t)) typeScores.fixed += 10;
+
+  // 跟随
+  if (/跟随|跟踪|follow|track|追着|跟拍|追拍|跟着|追踪/i.test(t)) typeScores.followBone += 10;
+
+  // "看看" "看一下" "瞧瞧" 等观察类 — 默认倾向环绕
+  if (/看看|看一下|瞧瞧|瞅瞅|瞄一眼|看一眼|瞅一眼|瞧一眼|看看什么样|长什么样|长啥样|什么样的|什么样子的/i.test(t)) {
+    typeScores.orbit += 4;
+    typeScores.pushIn += 2;
+  }
+
+  // 选最高分作为类型，分数过低则默认orbit
+  let bestType = 'orbit', bestScore = 0;
+  for (const [tp, sc] of Object.entries(typeScores)) {
+    if (sc > bestScore) { bestScore = sc; bestType = tp; }
+  }
+
+  // ═══════════════════════════════════════════
+  // 方向理解 — 用户想看哪个面
+  // ═══════════════════════════════════════════
+  let angle = null; // null=不指定，用默认
+
+  // 正面 — 模型+Z方向，orbit公式中angle=90
+  if (/正面|正前方|正对面|前面|前方|前脸|正脸|脸|面朝|面对|面|front|face|朝向|朝前|眼前|面前/i.test(t)) {
+    angle = 90;
+  }
+  // 背面/后面
+  if (/背面|后面|背后|后方|背部|后脑勺|屁股|背|后|back|behind|转过身|转过去|那面/i.test(t)) {
+    angle = 270;
+  }
+  // 右侧 — angle=0 (+X)
+  if (/右侧|右边|右面|右手边|右方|right|右/i.test(t)) {
+    angle = 0;
+  }
+  // 左侧 — angle=180 (-X)
+  if (/左侧|左边|左面|左手边|左方|left|左/i.test(t)) {
+    angle = 180;
+  }
+  // 侧面（未指定左右则默认右侧）
+  if (/侧面|侧边|旁边|侧方|侧/i.test(t) && angle === null) {
+    angle = 0;
+  }
+  // 顶部/俯拍
+  if (/顶部|上方|头顶|俯拍|俯瞰|鸟瞰|顶上|头顶上|高处看|从上往下看|top/i.test(t)) {
+    angle = angle !== null ? angle : 90;
+  }
+
+  // ═══════════════════════════════════════════
+  // 速度理解
+  // ═══════════════════════════════════════════
+  let speed = 1.0;
+  if (/极快|超快|非常快|高速|飞快|急速|刷地|嗖|闪电|极速|快得很/i.test(t)) speed = 2.5;
+  else if (/较快|偏快|快一点|快点|快速|快|fast|quick|加快|利索|麻利|爽快/i.test(t)) speed = 1.8;
+  else if (/中速|中等|普通|正常|medium|normal|适中|一般|不紧不慢|常规/i.test(t)) speed = 1.0;
+  else if (/较慢|偏慢|慢一点|慢点|慢些|慢速|慢|slow|缓慢|缓|徐徐|慢慢|悠悠|悠闲|从容|不慌不忙/i.test(t)) speed = 0.5;
+  else if (/极慢|超慢|非常慢|极缓|龟速|蜗牛|磨蹭|一点一点/i.test(t)) speed = 0.25;
+
+  // ═══════════════════════════════════════════
+  // 距离理解
+  // ═══════════════════════════════════════════
+  let distance = 'medium';
+  if (/极近|超近|微距|贴脸|贴到脸上|怼脸|凑到跟前|贴着|极近距离|凑上去/i.test(t)) distance = 'extreme-close';
+  else if (/近距|靠近|特写|近距离|贴近|近景|近一点|往前靠|拉近点|凑近|靠近些|近处|跟前|眼前/i.test(t)) distance = 'close';
+  else if (/中等|适中|中距离|中等距离|不远不近|正常距离|常规距离|一般距离/i.test(t)) distance = 'medium';
+  else if (/远距|远离|全景|远距离|广角|远一点|离远|拉开距离|退远点|远|拉远点|远处|远观/i.test(t)) distance = 'far';
+  else if (/极远|超远|极远距离|航拍|超广角|一览无余|最远|极远处|很远远/i.test(t)) distance = 'extreme-far';
+
+  // ═══════════════════════════════════════════
+  // 圈数理解
+  // ═══════════════════════════════════════════
+  let loops = 1;
+  const loopMap = { '半':0.5, '一':1, '二':2, '两':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10 };
+  const lm = t.match(/([半一二两三四五六七八九十\d]+)\s*圈/);
+  if (lm) {
+    loops = loopMap[lm[1]] || parseInt(lm[1]) || 1;
+  } else if (/半周|半匝/i.test(t)) loops = 0.5;
+  else if (/一圈|一周|一整圈|一整周/i.test(t)) loops = 1;
+  else if (/两圈|两周/i.test(t)) loops = 2;
+  else if (/三圈|三周/i.test(t)) loops = 3;
+  const dl = t.match(/(\d+\.?\d*)\s*圈/);
+  if (dl && !lm) loops = parseFloat(dl[1]);
+
+  // ═══════════════════════════════════════════
+  // 高度理解
+  // ═══════════════════════════════════════════
+  let height = 'medium';
+  if (/低角度|低视角|仰视|从下往上看|下方|低处|蹲下来看|蹲下|地面角度|很低|脚边|底部|下面/i.test(t)) height = 'low';
+  else if (/高角度|高视角|俯视|从上往下|上方|高处|鸟瞰|高空|俯拍|俯瞰|高高|很高|头顶|上方看/i.test(t)) height = 'high';
+  else if (/平视|中等高度|水平视角|平|齐平|眼睛高度|视线高度|平齐/i.test(t)) height = 'medium';
+
+  // ═══════════════════════════════════════════
+  // 抖动/景深
+  // ═══════════════════════════════════════════
+  let shake = 0, dof = 0;
+  if (/强烈抖动|剧烈震动|大幅抖动|地震|晃得厉害|晃得很|猛烈晃动/i.test(t)) shake = 3;
+  else if (/中等抖动|明显抖动|抖动|震感|晃|颠簸|晃荡/i.test(t)) shake = 2;
+  else if (/轻微抖动|微抖|小幅抖动|轻晃|稍抖|小抖/i.test(t)) shake = 1;
+  if (/强虚化|大虚化|深度虚化|背景虚化|强烈虚化/i.test(t)) dof = 1.0;
+  else if (/虚化|景深|背景模糊|dof|模糊背景/i.test(t)) dof = 0.6;
+  else if (/轻微虚化|浅景深|一点虚化/i.test(t)) dof = 0.3;
+
+  // ═══════════════════════════════════════════
+  // 身体部位理解 — "围着头转" → 镜头绕着头部转，看着头部
+  // ═══════════════════════════════════════════
+  let targetPart = 'auto'; // auto=默认全身, 或具体部位名
+
+  // 头部 — 最常用
+  if (/头|脑袋|脑瓜|脸|面部|脸部|五官|眼睛|眼|鼻|嘴|耳朵|额|太阳穴/i.test(t)) targetPart = 'head';
+  // 上半身
+  if (/胸|胸口|胸部|胸膛|上身|上半身|肩膀|肩|脖子|颈|心口/i.test(t)) targetPart = 'chest';
+  // 下半身
+  if (/脚|腿|下半身|下身|膝盖|膝|小腿|大腿|脚踝|踝|鞋|靴|足|蹄/i.test(t)) targetPart = 'legs';
+  // 手/臂
+  if (/手|手掌|手指|拳头|拳|腕|臂|手臂|胳膊|肘/i.test(t)) targetPart = 'arms';
+  // 腰/腹
+  if (/腰|肚子|腹部|腹|肚皮|肚脐|胃/i.test(t)) targetPart = 'waist';
+  // 全身/整体
+  if (/全身|整个人|整体|整个|全部|周身|通体|全身像/i.test(t)) targetPart = 'auto';
+
+  // ═══════════════════════════════════════════
+  // 数值提取
+  // ═══════════════════════════════════════════
+  const angleNum = t.match(/(\d+)\s*度/);
+  if (angleNum) angle = parseInt(angleNum[1]);
+  let duration = null;
+  const durM = t.match(/(\d+(?:\.\d+)?)\s*秒/);
+  if (durM) duration = parseFloat(durM[1]);
+  let radius = null;
+  const radM = t.match(/半径\s*(\d+(?:\.\d+)?)/);
+  if (radM) radius = parseFloat(radM[1]);
+
+  return {
+    type: bestType, speed, distance, height,
+    angle: angle !== null ? angle : 0,
+    loops, shake, dof, duration, spirals: 2, zoomRange: 3,
+    radius, customHeight: null, targetPart,
+  };
+}
+
+/** 根据特征估算合适的时长 */
+function estimateDuration(f) {
+  switch (f.type) {
+    case 'orbit': return Math.max(2, f.loops * 3 / f.speed);
+    case 'spiral': return Math.max(3, (f.spirals || 2) * 2 / f.speed);
+    case 'hitchcock': return Math.max(2, 3 / f.speed);
+    case 'pushIn': case 'pullOut': return Math.max(1.5, 2.5 / f.speed);
+    case 'pan': case 'tilt': return Math.max(2, 3 / f.speed);
+    case 'crane': return Math.max(2, 3 / f.speed);
+    case 'followBone': return Math.max(2, 4 / f.speed);
+    default: return 3 / f.speed;
+  }
+}
+
+/**
+ * 解析身体部位 → 最近的骨骼锚点名称
+ * "头" → "Head", "胸" → "Spine", "手" → "LeftArm" 等
+ */
+function resolveTargetBone(targetPart) {
+  if (!targetPart || targetPart === 'auto') return null;
+  const anchors = state.boneAnchors;
+  if (!anchors.length) return null;
+
+  const lower = (n) => (n || '').toLowerCase();
+  const partMap = {
+    head:  ['head','头','面','脸','眼','鼻','嘴','耳'],
+    chest: ['spine','chest','胸','躯干','上身','身体','肩','脖子','颈','心','腰','肚子','腹','肚皮','肚脐'],
+    arms:  ['arm','hand','手','臂','腕','肘','拳','指','掌','胳膊'],
+    legs:  ['leg','foot','脚','腿','膝','踝','鞋','足','蹄','趾'],
+  };
+
+  let targetCategory = null;
+  for (const [cat, keywords] of Object.entries(partMap)) {
+    if (keywords.some(kw => targetPart.includes(kw) || kw.includes(targetPart))) {
+      targetCategory = cat; break;
+    }
+  }
+  if (!targetCategory) return null;
+
+  // 在骨骼锚点中找匹配的
+  for (const anchor of anchors) {
+    const n = lower(anchor.name);
+    if (targetCategory === 'head' && (n.includes('head') || n.includes('头'))) return anchor.name;
+    if (targetCategory === 'chest' && (n.includes('spine') || n.includes('chest') || n.includes('body') || n.includes('躯干'))) return anchor.name;
+    if (targetCategory === 'arms' && (n.includes('arm') || n.includes('hand') || n.includes('手') || n.includes('臂'))) return anchor.name;
+    if (targetCategory === 'legs' && (n.includes('leg') || n.includes('foot') || n.includes('脚') || n.includes('腿'))) return anchor.name;
+  }
+  // 找不到精确匹配 → 取第一个锚点兜底
+  return anchors[0]?.name || null;
+}
+
+/** 从提取的特征构建完整的shot对象 */
+function buildShotFromFeatures(f, desc, startTime, endTime) {
+  const id = 'shot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const modelSize = state.modelSize || 1;
+
+  // 距离→实际数值映射
+  const distanceMap = {
+    'extreme-close': modelSize * 1.0,
+    'close': modelSize * 1.8,
+    'medium': modelSize * 3.0,
+    'far': modelSize * 5.0,
+    'extreme-far': modelSize * 8.0,
+  };
+  const heightMap = {
+    'low': -modelSize * 0.6,
+    'medium': modelSize * 0.6,
+    'high': modelSize * 2.5,
+  };
+
+  const radius = f.radius || distanceMap[f.distance] || modelSize * 3;
+  const height = f.customHeight !== null ? f.customHeight : (heightMap[f.height] || modelSize * 0.6);
+
+  // 解析身体部位 → 骨骼名
+  const targetBone = resolveTargetBone(f.targetPart);
+
+  let extra = { targetBone };
+  switch (f.type) {
+    case 'orbit':
+      extra = { ...extra, radius, height, loops: f.loops, angleStart: f.angle };
+      break;
+    case 'hitchcock':
+      extra = { ...extra, zoomRange: f.zoomRange, height, angle: f.angle };
+      break;
+    case 'spiral':
+      extra = { ...extra, radius, height: modelSize * 2.5, spirals: f.spirals };
+      break;
+    case 'pushIn':
+      extra = { ...extra, startDistance: radius * 1.6, distance: radius * 0.4, height, angle: f.angle };
+      break;
+    case 'pullOut':
+      extra = { ...extra, startDistance: radius * 0.5, distance: radius * 1.5, height, angle: f.angle };
+      break;
+    case 'pan':
+      extra = { ...extra, startAngle: -f.angle / 2 || -45, angle: f.angle || 90, distance: radius, height };
+      break;
+    case 'tilt':
+      extra = { ...extra, startHeight: modelSize * 2, height: -modelSize * 1, distance: radius, angle: f.angle };
+      break;
+    case 'crane':
+      extra = { ...extra, startHeight: -modelSize * 1, height: modelSize * 2, distance: radius, angle: f.angle };
+      break;
+    case 'followBone':
+      extra = { ...extra, boneName: targetBone || '', offset: { x: radius * 0.6, y: height, z: radius * 0.4 } };
+      break;
+    case 'fixed':
+      extra = { ...extra, position: [radius, height, radius], target: [0, modelSize * 0.5, 0] };
+      break;
+    default:
+      extra = { ...extra, radius, height, loops: f.loops };
+  }
+
+  return {
+    id, text: desc, type: f.type,
+    startTime: Math.max(0, startTime),
+    endTime: Math.min(state.modelDuration, endTime),
+    locked: false,
+    params: {
+      speed: f.speed,
+      shake: f.shake,
+      dof: f.dof,
+      extra,
+    }
+  };
+}
+
+// ============================================================
+// SEMANTIC LEARNING SYSTEM
+// ============================================================
+/**
+ * 持久化语义知识库系统
+ * 使用localStorage存储，支持导出导入JSON
+ * 自定义词汇优先级高于内置规则
+ */
+function loadSemanticLibrary() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_WORDS);
+    state.semanticLibrary = raw ? JSON.parse(raw) : {};
+    // Clean and validate
+    for (const [word, def] of Object.entries(state.semanticLibrary)) {
+      if (!def.type || typeof def.duration !== 'number') {
+        delete state.semanticLibrary[word];
+      }
+    }
+  } catch (e) {
+    state.semanticLibrary = {};
+  }
+}
+
+function saveSemanticLibrary() {
+  try {
+    localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(state.semanticLibrary));
+  } catch (e) {
+    showToast('⚠️ 词库存储失败，可能空间不足');
+  }
+}
+
+function addWordToLibrary(word, definition) {
+  // definition: {type, duration, speed, shake, dof, extra, useCount}
+  state.semanticLibrary[word] = {
+    type: definition.type,
+    duration: definition.duration || 3,
+    speed: definition.speed || 1,
+    shake: definition.shake || 0,
+    dof: definition.dof || 0,
+    extra: definition.extra || {},
+    useCount: definition.useCount || 0,
+  };
+  saveSemanticLibrary();
+}
+
+function removeWordFromLibrary(word) {
+  delete state.semanticLibrary[word];
+  saveSemanticLibrary();
+}
+
+function incrementWordUse(word) {
+  if (state.semanticLibrary[word]) {
+    state.semanticLibrary[word].useCount = (state.semanticLibrary[word].useCount || 0) + 1;
+    saveSemanticLibrary();
+  }
+}
+
+function exportWordsJSON() {
+  const data = JSON.stringify(state.semanticLibrary, null, 2);
+  const blob = new Blob([data], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'semantic_library_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📤 词库已导出');
+}
+
+function importWordsJSON(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (typeof data !== 'object') throw new Error('Invalid format');
+      // Merge with existing
+      let count = 0;
+      for (const [word, def] of Object.entries(data)) {
+        if (def && def.type) {
+          state.semanticLibrary[word] = def;
+          count++;
+        }
+      }
+      saveSemanticLibrary();
+      showToast(`📥 已导入 ${count} 个词条`);
+      renderSemanticTable();
+    } catch (err) {
+      showToast('❌ 词库文件格式错误');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function resetWordLibrary() {
+  if (confirm('确定要重置语义学习库吗？所有自定义词汇将被清除。此操作不可撤销。')) {
+    state.semanticLibrary = {};
+    saveSemanticLibrary();
+    showToast('🔄 词库已重置');
+    renderSemanticTable();
+  }
+}
+
+// ============================================================
+// TIMELINE SYSTEM - 剪映式可视化时间轴
+// ============================================================
+/**
+ * 双层轨道结构：
+ * - 底层（只读）：原始3D动画轨道
+ * - 上层（可编辑）：相机镜头轨道，支持拖拽、拉伸、右键操作
+ */
+function drawTimeline() {
+  const canvas = dom.timelineCanvas;
+  const wrap = dom.timelineCanvasWrap;
+  const wrapRect = wrap.getBoundingClientRect();
+  const w = Math.max(wrapRect.width - 4, 600);
+  const h = 200;
+
+  canvas.width = w;
+  canvas.height = h;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+
+  const ctx = canvas.getContext('2d');
+  const pps = state.pixelsPerSecond;
+  const totalW = TIMELINE_PADDING_LEFT + state.modelDuration * pps + 100;
+  // Ensure canvas is scrollable
+  canvas.style.width = Math.max(w, totalW) + 'px';
+
+  // Clear
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, w, h);
+
+  const animTrackY = TIMELINE_HEADER_HEIGHT + 4;
+  const camTrackY = animTrackY + TRACK_HEIGHT + TRACK_GAP;
+
+  // -- Time ruler header --
+  ctx.fillStyle = '#252540';
+  ctx.fillRect(0, 0, w, TIMELINE_HEADER_HEIGHT);
+  ctx.strokeStyle = '#2a2a4a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, TIMELINE_HEADER_HEIGHT);
+  ctx.lineTo(w, TIMELINE_HEADER_HEIGHT);
+  ctx.stroke();
+
+  // Time markers
+  ctx.fillStyle = '#a0a0b8';
+  ctx.font = '10px "Microsoft YaHei","Segoe UI",sans-serif';
+  ctx.textAlign = 'center';
+  const tickInterval = pps >= 200 ? 0.5 : pps >= 100 ? 1 : pps >= 50 ? 2 : 5;
+  for (let t = 0; t <= state.modelDuration; t += tickInterval) {
+    const x = TIMELINE_PADDING_LEFT + t * pps;
+    ctx.beginPath();
+    ctx.moveTo(x, TIMELINE_HEADER_HEIGHT - 8);
+    ctx.lineTo(x, TIMELINE_HEADER_HEIGHT);
+    ctx.strokeStyle = '#3a3a5a';
+    ctx.stroke();
+    ctx.fillText(t.toFixed(tickInterval < 1 ? 1 : 0) + 's', x, TIMELINE_HEADER_HEIGHT - 10);
+  }
+
+  // -- Track labels --
+  ctx.fillStyle = '#a0a0b8';
+  ctx.font = 'bold 11px "Microsoft YaHei","Segoe UI",sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('🎬 动画轨道', TIMELINE_PADDING_LEFT - 8, animTrackY + TRACK_HEIGHT / 2 + 4);
+  ctx.fillText('📷 相机轨道', TIMELINE_PADDING_LEFT - 8, camTrackY + TRACK_HEIGHT / 2 + 4);
+
+  // -- Animation track (read-only) --
+  const animTrackW = state.modelDuration * pps;
+  ctx.fillStyle = '#1e1e35';
+  ctx.fillRect(TIMELINE_PADDING_LEFT, animTrackY, animTrackW, TRACK_HEIGHT);
+  ctx.strokeStyle = '#2a2a4a';
+  ctx.strokeRect(TIMELINE_PADDING_LEFT, animTrackY, animTrackW, TRACK_HEIGHT);
+
+  if (state.modelLoaded && state.modelDuration > 0) {
+    // Animated stripe pattern
+    ctx.fillStyle = '#2a2a50';
+    const stripeW = 8;
+    for (let x = TIMELINE_PADDING_LEFT; x < TIMELINE_PADDING_LEFT + animTrackW; x += stripeW * 2) {
+      ctx.fillRect(x, animTrackY, stripeW, TRACK_HEIGHT);
+    }
+    ctx.fillStyle = '#555577';
+    ctx.font = '10px "Microsoft YaHei","Segoe UI",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('原始3D动画（只读）', TIMELINE_PADDING_LEFT + animTrackW / 2, animTrackY + TRACK_HEIGHT / 2 + 4);
+  }
+
+  // -- Camera track (editable) --
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(TIMELINE_PADDING_LEFT, camTrackY, animTrackW, TRACK_HEIGHT);
+  ctx.strokeStyle = '#3a3a5a';
+  ctx.strokeRect(TIMELINE_PADDING_LEFT, camTrackY, animTrackW, TRACK_HEIGHT);
+
+  // Draw camera clips
+  state.shots.forEach(shot => {
+    const sx = TIMELINE_PADDING_LEFT + shot.startTime * pps;
+    const sw = Math.max(MIN_CLIP_WIDTH, (shot.endTime - shot.startTime) * pps);
+    const sy = camTrackY + 3;
+    const sh = TRACK_HEIGHT - 6;
+
+    // Clip body
+    const isSelected = shot.id === state.selectedShotId;
+    const isHovered = shot.id === state.hoveredShotId;
+    let clipColor = '#e94560';
+    if (shot.locked) clipColor = '#6b6b80';
+    else if (isSelected) clipColor = '#f59e0b';
+    else if (isHovered) clipColor = '#ff6b81';
+
+    // Main clip rect with rounded corners
+    ctx.fillStyle = clipColor;
+    roundRect(ctx, sx, sy, sw, sh, 4);
+    ctx.fill();
+
+    // Inner gradient overlay
+    const grad = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+    grad.addColorStop(0, 'rgba(255,255,255,0.15)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.15)');
+    ctx.fillStyle = grad;
+    roundRect(ctx, sx, sy, sw, sh, 4);
+    ctx.fill();
+
+    // Selection border
+    if (isSelected) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      roundRect(ctx, sx, sy, sw, sh, 4);
+      ctx.stroke();
+      // Resize handles
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - 2, sy, 5, sh);
+      ctx.fillRect(sx + sw - 3, sy, 5, sh);
+    }
+
+    // Lock icon
+    if (shot.locked) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔒', sx + sw / 2, sy + sh / 2 + 3);
+    } else if (sw > 40) {
+      // Label
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '10px "Microsoft YaHei","Segoe UI",sans-serif';
+      ctx.textAlign = 'center';
+      const label = shot.text.length > 8 ? shot.text.slice(0, 8) + '…' : shot.text;
+      ctx.fillText(label, sx + sw / 2, sy + sh / 2 + 4);
+    }
+  });
+
+  // -- Playhead --
+  const playheadX = TIMELINE_PADDING_LEFT + state.currentTime * pps;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(playheadX, TIMELINE_HEADER_HEIGHT);
+  ctx.lineTo(playheadX, camTrackY + TRACK_HEIGHT);
+  ctx.stroke();
+  // Playhead triangle
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(playheadX, TIMELINE_HEADER_HEIGHT);
+  ctx.lineTo(playheadX - 5, TIMELINE_HEADER_HEIGHT - 6);
+  ctx.lineTo(playheadX + 5, TIMELINE_HEADER_HEIGHT - 6);
+  ctx.closePath();
+  ctx.fill();
+
+  // Ensure playhead visible
+  if (state.isPlaying) {
+    const scrollLeft = playheadX - wrap.clientWidth / 2;
+    wrap.scrollLeft = Math.max(0, scrollLeft);
+  }
+
+  dom.tlInfo.textContent = `像素比: ${pps}px/s | 总长: ${state.modelDuration.toFixed(1)}s`;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/** Get shot at timeline position (x, y) */
+function getShotAtPos(mx, my) {
+  const pps = state.pixelsPerSecond;
+  const camTrackY = TIMELINE_HEADER_HEIGHT + 4 + TRACK_HEIGHT + TRACK_GAP;
+  const sy = camTrackY + 3;
+  const sh = TRACK_HEIGHT - 6;
+
+  if (my < sy || my > sy + sh) return null;
+
+  for (let i = state.shots.length - 1; i >= 0; i--) {
+    const shot = state.shots[i];
+    const sx = TIMELINE_PADDING_LEFT + shot.startTime * pps;
+    const sw = Math.max(MIN_CLIP_WIDTH, (shot.endTime - shot.startTime) * pps);
+    if (mx >= sx && mx <= sx + sw) return shot;
+  }
+  return null;
+}
+
+// ============================================================
+// TIMELINE MOUSE INTERACTIONS
+// ============================================================
+let tlMouseState = {
+  action: null, // 'drag' | 'resizeLeft' | 'resizeRight' | 'playhead' | null
+  shotId: null,
+  startMouseX: 0,
+  startMouseY: 0,
+};
+
+dom.timelineCanvas.addEventListener('mousedown', (e) => {
+  const rect = dom.timelineCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const pps = state.pixelsPerSecond;
+
+  // Check playhead drag
+  const playheadX = TIMELINE_PADDING_LEFT + state.currentTime * pps;
+  if (Math.abs(mx - playheadX) < 8 && my < TIMELINE_HEADER_HEIGHT + TRACK_HEIGHT * 2 + 8) {
+    tlMouseState.action = 'playhead';
+    tlMouseState.startMouseX = mx;
+    dom.timelineCanvas.style.cursor = 'ew-resize';
+    return;
+  }
+
+  // Check clip interaction
+  const shot = getShotAtPos(mx, my);
+  if (shot && !shot.locked) {
+    const sx = TIMELINE_PADDING_LEFT + shot.startTime * pps;
+    const sw = Math.max(MIN_CLIP_WIDTH, (shot.endTime - shot.startTime) * pps);
+
+    if (mx >= sx - 4 && mx <= sx + 6) {
+      tlMouseState.action = 'resizeLeft';
+      tlMouseState.shotId = shot.id;
+      dom.timelineCanvas.style.cursor = 'ew-resize';
+    } else if (mx >= sx + sw - 6 && mx <= sx + sw + 4) {
+      tlMouseState.action = 'resizeRight';
+      tlMouseState.shotId = shot.id;
+      dom.timelineCanvas.style.cursor = 'ew-resize';
+    } else {
+      tlMouseState.action = 'drag';
+      tlMouseState.shotId = shot.id;
+      tlMouseState.startMouseX = mx - sx;
+      dom.timelineCanvas.style.cursor = 'grab';
+    }
+    state.selectedShotId = shot.id;
+    updateShotList();
+    drawTimeline();
+    return;
+  }
+
+  // Click on empty camera track area = deselect
+  state.selectedShotId = null;
+  updateShotList();
+  drawTimeline();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!tlMouseState.action) {
+    // Hover detection
+    const rect = dom.timelineCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const shot = getShotAtPos(mx, my);
+    const prevHovered = state.hoveredShotId;
+    state.hoveredShotId = shot ? shot.id : null;
+    if (prevHovered !== state.hoveredShotId) drawTimeline();
+    if (shot && !shot.locked) {
+      dom.timelineCanvas.style.cursor = 'pointer';
+    } else {
+      dom.timelineCanvas.style.cursor = 'default';
+    }
+    return;
+  }
+
+  const rect = dom.timelineCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const pps = state.pixelsPerSecond;
+
+  if (tlMouseState.action === 'playhead') {
+    let t = (mx - TIMELINE_PADDING_LEFT) / pps;
+    state.currentTime = Math.max(0, Math.min(state.modelDuration, t));
+    updatePlaybackTime();
+    drawTimeline();
+    return;
+  }
+
+  const shot = state.shots.find(s => s.id === tlMouseState.shotId);
+  if (!shot) return;
+
+  if (tlMouseState.action === 'drag') {
+    let newStart = (mx - tlMouseState.startMouseX - TIMELINE_PADDING_LEFT) / pps;
+    const duration = shot.endTime - shot.startTime;
+    if (state.snapEnabled) {
+      newStart = Math.round(newStart * 2) / 2; // snap to 0.5s
+    }
+    newStart = Math.max(0, Math.min(state.modelDuration - duration, newStart));
+    shot.startTime = newStart;
+    shot.endTime = newStart + duration;
+    drawTimeline();
+    updateShotList();
+  } else if (tlMouseState.action === 'resizeLeft') {
+    let newStart = (mx - TIMELINE_PADDING_LEFT) / pps;
+    if (state.snapEnabled) newStart = Math.round(newStart * 2) / 2;
+    newStart = Math.max(0, Math.min(shot.endTime - 0.1, newStart));
+    shot.startTime = newStart;
+    drawTimeline();
+    updateShotList();
+  } else if (tlMouseState.action === 'resizeRight') {
+    let newEnd = (mx - TIMELINE_PADDING_LEFT) / pps;
+    if (state.snapEnabled) newEnd = Math.round(newEnd * 2) / 2;
+    newEnd = Math.max(shot.startTime + 0.1, Math.min(state.modelDuration, newEnd));
+    shot.endTime = newEnd;
+    drawTimeline();
+    updateShotList();
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (tlMouseState.action) {
+    tlMouseState.action = null;
+    tlMouseState.shotId = null;
+    dom.timelineCanvas.style.cursor = 'default';
+    drawTimeline();
+  }
+});
+
+// Context menu
+dom.timelineCanvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const rect = dom.timelineCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const shot = getShotAtPos(mx, my);
+  if (shot) {
+    state.selectedShotId = shot.id;
+    drawTimeline();
+    updateShotList();
+    dom.contextMenu.style.display = 'block';
+    dom.contextMenu.style.left = e.clientX + 'px';
+    dom.contextMenu.style.top = e.clientY + 'px';
+    dom.contextMenu._shotId = shot.id;
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!dom.contextMenu.contains(e.target)) {
+    dom.contextMenu.style.display = 'none';
+  }
+});
+
+// Context menu actions
+dom.contextMenu.querySelectorAll('.ctx-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const action = item.dataset.action;
+    const shotId = dom.contextMenu._shotId;
+    dom.contextMenu.style.display = 'none';
+    if (!shotId) return;
+    const shot = state.shots.find(s => s.id === shotId);
+    if (!shot) return;
+
+    switch (action) {
+      case 'split': splitShot(shotId); break;
+      case 'copy': duplicateShot(shotId); break;
+      case 'delete': deleteShot(shotId); break;
+      case 'lock': shot.locked = !shot.locked; drawTimeline(); updateShotList(); break;
+      case 'rename': {
+        const newName = prompt('重命名镜头:', shot.text);
+        if (newName) { shot.text = newName; drawTimeline(); updateShotList(); }
+        break;
+      }
+    }
+  });
+});
+
+// ============================================================
+// SHOT OPERATIONS
+// ============================================================
+function splitShot(shotId) {
+  const idx = state.shots.findIndex(s => s.id === shotId);
+  if (idx < 0) return;
+  const shot = state.shots[idx];
+  const midTime = (shot.startTime + shot.endTime) / 2;
+  const shot1 = { ...shot, id:'shot_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), endTime:midTime, locked:false };
+  const shot2 = { ...shot, id:'shot_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), startTime:midTime, locked:false };
+  state.shots.splice(idx, 1, shot1, shot2);
+  drawTimeline();
+  updateShotList();
+  showToast('✂️ 镜头已分割');
+}
+
+function duplicateShot(shotId) {
+  const idx = state.shots.findIndex(s => s.id === shotId);
+  if (idx < 0) return;
+  const shot = state.shots[idx];
+  const newShot = { ...shot, id:'shot_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), locked:false,
+    startTime:Math.min(shot.endTime + 0.1, state.modelDuration),
+    endTime:Math.min(shot.endTime + (shot.endTime - shot.startTime), state.modelDuration),
+  };
+  state.shots.splice(idx + 1, 0, newShot);
+  state.selectedShotId = newShot.id;
+  drawTimeline();
+  updateShotList();
+  showToast('📋 镜头已复制');
+}
+
+function deleteShot(shotId) {
+  state.shots = state.shots.filter(s => s.id !== shotId);
+  if (state.selectedShotId === shotId) state.selectedShotId = null;
+  drawTimeline();
+  updateShotList();
+  showToast('🗑️ 镜头已删除');
+}
+
+function clearAllShots() {
+  if (state.shots.length === 0 || confirm('确定清空所有相机镜头？')) {
+    state.shots = [];
+    state.selectedShotId = null;
+    drawTimeline();
+    updateShotList();
+  }
+}
+
+// ============================================================
+// UPDATE SHOT LIST UI
+// ============================================================
+function updateShotList() {
+  dom.shotCount.textContent = state.shots.length + '段';
+  dom.shotList.innerHTML = state.shots.map((shot, i) => {
+    const dur = (shot.endTime - shot.startTime).toFixed(1);
+    const isSel = shot.id === state.selectedShotId;
+    const bg = isSel ? 'background:#1a2a3a;border-color:#f59e0b;' : '';
+    return `
+      <div class="shot-item" style="${bg}" data-shot-id="${shot.id}">
+        <div class="shot-header">
+          <span class="shot-type">${shot.type}${shot.locked?' 🔒':''}</span>
+          <span class="shot-time">${shot.startTime.toFixed(1)}s - ${shot.endTime.toFixed(1)}s (${dur}s)</span>
+        </div>
+        <div class="shot-desc">${escapeHtml(shot.text)}</div>
+        <div class="shot-actions">
+          <button class="btn btn-xs btn-outline shot-edit-btn">✏️</button>
+          <button class="btn btn-xs btn-outline shot-del-btn">🗑️</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Bind shot list clicks
+  dom.shotList.querySelectorAll('.shot-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      state.selectedShotId = el.dataset.shotId;
+      updateShotList();
+      drawTimeline();
+    });
+    el.querySelector('.shot-del-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteShot(el.dataset.shotId);
+    });
+    el.querySelector('.shot-edit-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const shot = state.shots.find(s => s.id === el.dataset.shotId);
+      if (shot) {
+        const newText = prompt('编辑镜头描述:', shot.text);
+        if (newText) { shot.text = newText; updateShotList(); drawTimeline(); }
+      }
+    });
+  });
+}
+
+function escapeHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ============================================================
+// PLAYBACK SYSTEM
+// ============================================================
+function updatePlaybackTime() {
+  dom.currentTimeDisplay.textContent = state.currentTime.toFixed(2) + 's';
+}
+
+function setCurrentTime(t) {
+  state.currentTime = Math.max(0, Math.min(state.modelDuration, t));
+  updatePlaybackTime();
+  drawTimeline();
+}
+
+function togglePlayPause() {
+  if (!state.modelLoaded) { showToast('⚠️ 请先加载模型'); return; }
+  state.isPlaying = !state.isPlaying;
+  dom.canvasOverlay.textContent = state.isPlaying ? '▶ 播放中' : '⏸ 暂停';
+  const btn = $('#btn-play-pause');
+  btn.innerHTML = state.isPlaying ? '⏸️ 暂停' : '▶️ 播放';
+}
+
+function stepFrame(dir) {
+  const fps = 30;
+  setCurrentTime(state.currentTime + dir * (1 / fps));
+}
+
+// ============================================================
+// PROJECT EXPORT/IMPORT
+// ============================================================
+function exportProject() {
+  const project = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    modelDuration: state.modelDuration,
+    shots: state.shots,
+    semanticLibrary: state.semanticLibrary,
+    settings: {
+      pixelsPerSecond: state.pixelsPerSecond,
+      snapEnabled: state.snapEnabled,
+    },
+  };
+  const json = JSON.stringify(project, null, 2);
+  const blob = new Blob([json], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'camera_project_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📤 工程已导出');
+}
+
+function importProject(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const project = JSON.parse(e.target.result);
+      if (!project.shots || !Array.isArray(project.shots)) throw new Error('Invalid project');
+      state.shots = project.shots;
+      state.selectedShotId = null;
+      state.currentTime = 0;
+      // Merge semantic library
+      if (project.semanticLibrary) {
+        for (const [word, def] of Object.entries(project.semanticLibrary)) {
+          if (!state.semanticLibrary[word]) {
+            state.semanticLibrary[word] = def;
+          }
+        }
+        saveSemanticLibrary();
+      }
+      // Apply settings
+      if (project.settings) {
+        state.pixelsPerSecond = project.settings.pixelsPerSecond || DEFAULT_PIXELS_PER_SEC;
+        state.snapEnabled = project.settings.snapEnabled !== false;
+      }
+      updateShotList();
+      drawTimeline();
+      showToast('📥 工程已导入 (' + state.shots.length + ' 个镜头)');
+    } catch (err) {
+      showToast('❌ 工程文件格式错误');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ============================================================
+// VIDEO RECORDING
+// ============================================================
+async function startRecording() {
+  if (!state.modelLoaded) { showToast('⚠️ 请先加载模型'); return; }
+  if (state.isRecording) return;
+
+  const resolution = parseFloat($('#video-resolution').value);
+  const fps = parseInt($('#video-fps').value);
+  const format = $('#video-format').value;
+  const mimeType = format === 'mp4' ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp9';
+  // Note: MP4 via MediaRecorder is not widely supported; use WebM and note conversion
+  const actualMime = MediaRecorder.isTypeSupported(mimeType) ? mimeType :
+                     MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' :
+                     MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/webm';
+
+  const rect = dom.canvasContainer.getBoundingClientRect();
+  const w = Math.floor(rect.width * resolution);
+  const h = Math.floor(rect.height * resolution);
+
+  // Resize renderer for recording
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+
+  const stream = dom.canvas3d.captureStream(fps);
+  state.recordedChunks = [];
+  state.mediaRecorder = new MediaRecorder(stream, { mimeType:actualMime, videoBitsPerSecond:8000000 });
+  state.mediaRecorder.ondataavailable = (e) => {
+    if (e.data.size > 0) state.recordedChunks.push(e.data);
+  };
+  state.mediaRecorder.onstop = () => {
+    const blob = new Blob(state.recordedChunks, { type:'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ext = format === 'mp4' ? 'webm' : 'webm'; // MediaRecorder always outputs webm
+    a.href = url; a.download = 'camera_shot_' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.' + ext;
+    a.click();
+    URL.revokeObjectURL(url);
+    state.isRecording = false;
+    dom.recordStatus.textContent = '录制完成 ✅';
+    $('#btn-record').style.display = '';
+    $('#btn-stop-record').style.display = 'none';
+    // Restore renderer size
+    resizeRenderer();
+    showToast('✅ 视频已导出 (WebM格式)');
+  };
+
+  state.mediaRecorder.start();
+  state.isRecording = true;
+  // Auto-play for recording
+  if (!state.isPlaying) togglePlayPause();
+  state.currentTime = 0;
+
+  dom.recordStatus.textContent = '🔴 录制中...';
+  $('#btn-record').style.display = 'none';
+  $('#btn-stop-record').style.display = '';
+  showToast('🔴 开始录制 (注：浏览器输出WebM格式)');
+}
+
+function stopRecording() {
+  if (!state.isRecording || !state.mediaRecorder) return;
+  state.mediaRecorder.stop();
+  if (state.isPlaying) togglePlayPause();
+}
+
+// ============================================================
+// RENDER LOOP
+// ============================================================
+const clock = new THREE.Clock();
+let lastTrajectoryUpdate = 0;
+
+function animate(timestamp) {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.1);
+
+  // Update animation mixer
+  if (state.animationMixer) {
+    state.animationMixer.update(dt);
+  }
+
+  // Update playback
+  if (state.isPlaying) {
+    state.currentTime += dt * state.speed;
+
+    // 播放结束 → 自动回到起点
+    if (state.currentTime >= state.modelDuration) {
+      state.currentTime = state.modelDuration;
+      state.isPlaying = false;
+      dom.canvasOverlay.textContent = '⏸ 播放完毕';
+      $('#btn-play-pause').innerHTML = '▶️ 播放';
+      if (state.isRecording) stopRecording();
+      // 自动回正：延迟0.3秒后回到0
+      setTimeout(() => {
+        if (!state.isPlaying) {
+          state.currentTime = 0;
+          updatePlaybackTime();
+          drawTimeline();
+          dom.canvasOverlay.textContent = '↩ 已回到起点';
+        }
+      }, 400);
+    }
+    updatePlaybackTime();
+
+    // 应用相机运镜 — 帧率无关的指数平滑，彻底消除卡顿
+    let cameraUpdated = false;
+    for (const shot of state.shots) {
+      if (state.currentTime >= shot.startTime && state.currentTime <= shot.endTime) {
+        const tNorm = (state.currentTime - shot.startTime) / (shot.endTime - shot.startTime);
+        const motion = evaluateCameraMotion(shot, tNorm, state.modelCenter, state.modelSize);
+
+        // 防穿模
+        const safePos = antiPenetration(motion.position, motion.target, state.modelSize);
+
+        // 帧率无关平滑：smoothFactor = 1-e^(-12*dt)
+        // 60fps≈0.18, 30fps≈0.33 — 视觉上完全一致
+        const sf = 1 - Math.exp(-12 * dt);
+        camera.position.lerp(safePos, sf);
+        orbitControls.target.lerp(motion.target, sf);
+        camera.fov += (motion.fov - camera.fov) * sf;
+        camera.updateProjectionMatrix();
+        cameraUpdated = true;
+        break;
+      }
+    }
+    // 播放期间不调用 orbitControls.update()，避免阻尼与运镜冲突造成抖动
+    if (cameraUpdated) {
+      // 直接更新 controls 内部状态以匹配相机
+      orbitControls.target.set(
+        orbitControls.target.x,
+        orbitControls.target.y,
+        orbitControls.target.z
+      );
+    }
+
+    drawTimeline();
+  } else {
+    // 非播放状态：允许自由旋转模型
+    orbitControls.update();
+  }
+
+  // Update bone markers
+  if (state.showBones && state.modelScene && boneMarkersGroup.children.length > 0) {
+    let i = 0;
+    state.boneAnchors.forEach(bone => {
+      if (i < boneMarkersGroup.children.length) {
+        const worldPos = new THREE.Vector3();
+        bone.object.getWorldPosition(worldPos);
+        boneMarkersGroup.children[i].position.copy(worldPos);
+        i++;
+      }
+    });
+  }
+
+  // Update trajectory preview (throttled)
+  if (state.showTrajectory && state.selectedShotId && timestamp - lastTrajectoryUpdate > 200) {
+    lastTrajectoryUpdate = timestamp;
+    drawTrajectoryPreview();
+  } else if (!state.showTrajectory || !state.selectedShotId) {
+    while (trajectoryGroup.children.length > 0) {
+      const c = trajectoryGroup.children[0];
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) c.material.dispose();
+      trajectoryGroup.remove(c);
+    }
+  }
+
+  // Render
+  renderer.render(scene, camera);
+
+  // Update canvas overlay
+  if (state.isPlaying) {
+    dom.canvasOverlay.textContent = `▶ ${state.currentTime.toFixed(1)}s / ${state.modelDuration.toFixed(1)}s`;
+  }
+}
+
+function drawTrajectoryPreview() {
+  while (trajectoryGroup.children.length > 0) {
+    const c = trajectoryGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    trajectoryGroup.remove(c);
+  }
+
+  const shot = state.shots.find(s => s.id === state.selectedShotId);
+  if (!shot) return;
+
+  const points = [];
+  const steps = 60;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const motion = evaluateCameraMotion(shot, t, state.modelCenter, state.modelSize);
+    points.push(motion.position.clone());
+  }
+
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color:0xf59e0b, linewidth:1, transparent:true, opacity:0.8 });
+  const line = new THREE.Line(geo, mat);
+  trajectoryGroup.add(line);
+
+  // Add keyframe dots
+  const dotGeo = new THREE.SphereGeometry(0.08, 6, 6);
+  const dotMat = new THREE.MeshBasicMaterial({ color:0xffffff });
+  [0, 0.5, 1].forEach(frac => {
+    const t = frac;
+    const motion = evaluateCameraMotion(shot, t, state.modelCenter, state.modelSize);
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.position.copy(motion.position);
+    trajectoryGroup.add(dot);
+  });
+}
+
+// ============================================================
+// RESET VIEW - 回正视角
+// ============================================================
+/**
+ * 平滑动画回正到默认最佳视角
+ * 使用 GSAP 风格的缓动插值
+ */
+let resetViewAnimId = null;
+function resetView() {
+  if (!state.modelLoaded) { showToast('⚠️ 请先加载模型'); return; }
+
+  // Cancel any ongoing reset animation
+  if (resetViewAnimId) cancelAnimationFrame(resetViewAnimId);
+
+  const startPos = camera.position.clone();
+  const startTarget = orbitControls.target.clone();
+  const endPos = state.defaultView.pos.clone();
+  const endTarget = state.defaultView.target.clone();
+  const startTime = performance.now();
+  const duration = 800; // ms
+
+  function animStep(now) {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / duration);
+    // Ease in-out cubic
+    const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    camera.position.lerpVectors(startPos, endPos, ease);
+    orbitControls.target.lerpVectors(startTarget, endTarget, ease);
+    orbitControls.update();
+
+    if (t < 1) {
+      resetViewAnimId = requestAnimationFrame(animStep);
+    } else {
+      resetViewAnimId = null;
+      showToast('✅ 视角已回正');
+    }
+  }
+  resetViewAnimId = requestAnimationFrame(animStep);
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimeout;
+function showToast(msg) {
+  dom.toast.textContent = msg;
+  dom.toast.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => dom.toast.classList.remove('show'), 2000);
+}
+
+// ============================================================
+// SEMANTIC MODAL RENDERING
+// ============================================================
+function renderSemanticTable() {
+  const allWords = Object.entries(state.semanticLibrary);
+  dom.semanticTableBody.innerHTML = allWords.map(([word, def]) => `
+    <tr>
+      <td><span class="word-tag">${escapeHtml(word)}</span></td>
+      <td>${def.type}</td>
+      <td>${def.useCount || 0}</td>
+      <td>
+        <button class="btn btn-xs btn-outline sem-edit-btn" data-word="${escapeHtml(word)}">✏️</button>
+        <button class="btn btn-xs btn-outline sem-del-btn" data-word="${escapeHtml(word)}" style="color:var(--accent);">🗑️</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px;">暂无自定义词条<br>内置词汇可直接使用</td></tr>';
+
+  dom.semanticStatus.textContent = `共 ${allWords.length} 个自定义词条 | 内置 ${Object.keys(BUILTIN_WORDS).length} 个词汇`;
+}
+
+// Handler for semantic table buttons
+dom.semanticTableBody.addEventListener('click', (e) => {
+  const word = e.target.dataset.word;
+  if (!word) return;
+  if (e.target.classList.contains('sem-del-btn')) {
+    if (confirm(`删除词条 "${word}"？`)) {
+      removeWordFromLibrary(word);
+      renderSemanticTable();
+      showToast('🗑️ 词条已删除');
+    }
+  }
+  if (e.target.classList.contains('sem-edit-btn')) {
+    const def = state.semanticLibrary[word];
+    if (!def) return;
+    dom.newWordText.value = word;
+    dom.newWordType.value = def.type;
+    dom.newWordDuration.value = def.duration;
+    dom.newWordSpeed.value = def.speed;
+    dom.newWordSpeedVal.textContent = def.speed.toFixed(1) + 'x';
+    dom.newWordShake.value = def.shake;
+    dom.newWordDof.value = def.dof;
+    dom.newWordDofVal.textContent = def.dof;
+    dom.newWordExtra.value = JSON.stringify(def.extra || {}, null, 2);
+    dom.newWordPrompt.textContent = `编辑词条 "${word}"`;
+    dom.newWordOverlay.style.display = 'flex';
+  }
+});
+
+// ============================================================
+// EVENT HANDLERS
+// ============================================================
+// Model upload
+dom.modelUploadArea.addEventListener('click', () => dom.modelFileInput.click());
+dom.modelFileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) loadModel(e.target.files[0]);
+});
+// Test model button
+$('#btn-test-model').addEventListener('click', loadTestModel);
+dom.modelUploadArea.addEventListener('dragover', (e) => { e.preventDefault(); dom.modelUploadArea.classList.add('dragover'); });
+dom.modelUploadArea.addEventListener('dragleave', () => dom.modelUploadArea.classList.remove('dragover'));
+dom.modelUploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dom.modelUploadArea.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+    loadModel(file);
+  } else {
+    showToast('⚠️ 请上传 .glb 或 .gltf 文件');
+  }
+});
+
+// Also allow drop on the 3D canvas
+dom.canvasContainer.addEventListener('dragover', (e) => { e.preventDefault(); });
+dom.canvasContainer.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+    loadModel(file);
+  }
+});
+
+// Parse shot button - 智能NL解析，输入即所得
+$('#btn-parse-shot').addEventListener('click', () => {
+  if (!state.modelLoaded) { showToast('⚠️ 请先加载模型'); return; }
+  const text = dom.shotInput.value.trim();
+  if (!text) { showToast('⚠️ 请输入镜头描述'); return; }
+
+  // 智能解析：自动理解自然语言，无需手动选择镜头类型
+  const newShots = parseShots(text);
+
+  if (newShots.length === 0) {
+    showToast('⚠️ 未能解析镜头描述，请尝试更明确的描述');
+    return;
+  }
+
+  // 添加镜头到时间轴
+  state.shots.push(...newShots);
+
+  // 自动匹配词库并增加使用计数
+  const allWords = { ...state.semanticLibrary };
+  newShots.forEach(s => {
+    for (const word of Object.keys(allWords)) {
+      if (s.text.includes(word)) {
+        incrementWordUse(word);
+        break;
+      }
+    }
+  });
+
+  updateShotList();
+  drawTimeline();
+  showToast(`✅ 已理解：${newShots.length}段镜头已生成`);
+});
+
+// New word dialog - sequential prompting
+function promptNewWord(desc, index) {
+  if (index >= state.pendingUnknownWords.length) {
+    state.pendingUnknownWords = [];
+    return;
+  }
+  const word = state.pendingUnknownWords[index];
+  dom.newWordPrompt.textContent = `「${word}」不在语义库中，请绑定运动类型和参数：`;
+  dom.newWordText.value = word;
+  dom.newWordType.value = 'orbit';
+  dom.newWordDuration.value = '3';
+  dom.newWordSpeed.value = '1';
+  dom.newWordSpeedVal.textContent = '1.0x';
+  dom.newWordShake.value = '0';
+  dom.newWordDof.value = '0';
+  dom.newWordDofVal.textContent = '0';
+  dom.newWordExtra.value = '';
+  dom.newWordOverlay.style.display = 'flex';
+  dom.newWordOverlay._pendingIndex = index;
+}
+
+$('#btn-save-word').addEventListener('click', () => {
+  const word = dom.newWordText.value.trim();
+  if (!word) { showToast('⚠️ 请输入词汇'); return; }
+  let extra = {};
+  try { if (dom.newWordExtra.value.trim()) extra = JSON.parse(dom.newWordExtra.value); } catch(e) { showToast('⚠️ 高级参数JSON格式错误'); return; }
+  addWordToLibrary(word, {
+    type: dom.newWordType.value,
+    duration: parseFloat(dom.newWordDuration.value),
+    speed: parseFloat(dom.newWordSpeed.value),
+    shake: parseInt(dom.newWordShake.value),
+    dof: parseFloat(dom.newWordDof.value),
+    extra,
+    useCount: (state.semanticLibrary[word]?.useCount || 0) + 1,
+  });
+  dom.newWordOverlay.style.display = 'none';
+  showToast(`✅ 已学习新词: ${word}`);
+  renderSemanticTable();
+
+  // 根据调用来源决定后续行为
+  if (state._addWordStandalone) {
+    // 来自语义库管理面板的「添加词条」- 直接关闭
+    state._addWordStandalone = false;
+  } else {
+    // 来自解析镜头的未知词汇弹窗 - 继续提示下一个未知词
+    const idx = (dom.newWordOverlay._pendingIndex || 0) + 1;
+    if (idx < state.pendingUnknownWords.length) {
+      promptNewWord(state.pendingUnknownWords[idx], idx);
+    } else {
+      state.pendingUnknownWords = [];
+    }
+  }
+});
+
+$('#btn-cancel-word').addEventListener('click', () => {
+  dom.newWordOverlay.style.display = 'none';
+  if (state._addWordStandalone) {
+    // 来自语义库管理面板 - 直接关闭
+    state._addWordStandalone = false;
+  } else {
+    // 来自解析镜头 - 跳过当前未知词，继续下一个
+    const idx = (dom.newWordOverlay._pendingIndex || 0) + 1;
+    if (idx < state.pendingUnknownWords.length) {
+      promptNewWord(state.pendingUnknownWords[idx], idx);
+    } else {
+      state.pendingUnknownWords = [];
+    }
+  }
+});
+
+// New word speed slider
+dom.newWordSpeed.addEventListener('input', () => {
+  dom.newWordSpeedVal.textContent = parseFloat(dom.newWordSpeed.value).toFixed(1) + 'x';
+});
+dom.newWordDof.addEventListener('input', () => {
+  dom.newWordDofVal.textContent = dom.newWordDof.value;
+});
+
+// Clear shots
+$('#btn-clear-shots').addEventListener('click', clearAllShots);
+
+// Semantic modal
+$('#btn-open-semantic').addEventListener('click', () => {
+  renderSemanticTable();
+  dom.semanticModalOverlay.style.display = 'flex';
+});
+$('#btn-close-semantic').addEventListener('click', () => {
+  dom.semanticModalOverlay.style.display = 'none';
+});
+dom.semanticModalOverlay.addEventListener('click', (e) => {
+  if (e.target === dom.semanticModalOverlay) dom.semanticModalOverlay.style.display = 'none';
+});
+$('#btn-add-word').addEventListener('click', () => {
+  state._addWordStandalone = true;
+  dom.newWordPrompt.textContent = '添加新的自定义镜头词汇：';
+  dom.newWordText.value = '';
+  dom.newWordType.value = 'orbit';
+  dom.newWordDuration.value = '3';
+  dom.newWordSpeed.value = '1';
+  dom.newWordSpeedVal.textContent = '1.0x';
+  dom.newWordShake.value = '0';
+  dom.newWordDof.value = '0';
+  dom.newWordDofVal.textContent = '0';
+  dom.newWordExtra.value = '';
+  dom.newWordOverlay.style.display = 'flex';
+  dom.newWordOverlay._pendingIndex = -1;
+});
+$('#btn-cancel-word').addEventListener('click', () => {
+  dom.newWordOverlay.style.display = 'none';
+  state.pendingUnknownWords = [];
+});
+$('#btn-export-words').addEventListener('click', exportWordsJSON);
+$('#btn-import-words').addEventListener('click', () => $('#words-file-input').click());
+$('#words-file-input').addEventListener('change', (e) => {
+  if (e.target.files[0]) { importWordsJSON(e.target.files[0]); renderSemanticTable(); }
+});
+$('#btn-reset-words').addEventListener('click', () => { resetWordLibrary(); renderSemanticTable(); });
+
+// Playback controls
+$('#btn-play-pause').addEventListener('click', togglePlayPause);
+$('#btn-skip-start').addEventListener('click', () => setCurrentTime(0));
+$('#btn-skip-end').addEventListener('click', () => setCurrentTime(state.modelDuration));
+$('#btn-step-prev').addEventListener('click', () => stepFrame(-1));
+$('#btn-step-next').addEventListener('click', () => stepFrame(1));
+dom.speedSlider.addEventListener('input', () => {
+  state.speed = parseFloat(dom.speedSlider.value);
+  dom.speedDisplay.textContent = state.speed.toFixed(2) + 'x';
+});
+
+// Keyboard shortcuts
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  switch (e.key) {
+    case ' ': e.preventDefault(); togglePlayPause(); break;
+    case 'ArrowLeft': e.preventDefault(); stepFrame(-1); break;
+    case 'ArrowRight': e.preventDefault(); stepFrame(1); break;
+    case 'Delete': if (state.selectedShotId) deleteShot(state.selectedShotId); break;
+    case 'd': if (e.ctrlKey && state.selectedShotId) { e.preventDefault(); duplicateShot(state.selectedShotId); } break;
+    case 's': if (e.ctrlKey && state.selectedShotId) { e.preventDefault(); splitShot(state.selectedShotId); } break;
+  }
+});
+
+// Editing tools
+$('#btn-tool-split').addEventListener('click', () => {
+  if (!state.selectedShotId) { showToast('⚠️ 请先在时间轴上选择镜头'); return; }
+  splitShot(state.selectedShotId);
+});
+$('#btn-tool-copy').addEventListener('click', () => {
+  if (!state.selectedShotId) { showToast('⚠️ 请先选择镜头'); return; }
+  duplicateShot(state.selectedShotId);
+});
+$('#btn-tool-delete').addEventListener('click', () => {
+  if (!state.selectedShotId) { showToast('⚠️ 请先选择镜头'); return; }
+  deleteShot(state.selectedShotId);
+});
+$('#btn-tool-lock').addEventListener('click', () => {
+  const shot = state.shots.find(s => s.id === state.selectedShotId);
+  if (!shot) { showToast('⚠️ 请先选择镜头'); return; }
+  shot.locked = !shot.locked;
+  drawTimeline();
+  updateShotList();
+  showToast(shot.locked ? '🔒 已锁定' : '🔓 已解锁');
+});
+
+// Display toggles
+$('#btn-toggle-trajectory').addEventListener('click', function() {
+  state.showTrajectory = !state.showTrajectory;
+  this.textContent = '📐 轨迹线: ' + (state.showTrajectory ? '开' : '关');
+  if (!state.showTrajectory) {
+    while (trajectoryGroup.children.length > 0) { trajectoryGroup.remove(trajectoryGroup.children[0]); }
+  }
+});
+$('#btn-toggle-grid').addEventListener('click', function() {
+  state.showGrid = !state.showGrid;
+  this.textContent = '📏 网格: ' + (state.showGrid ? '开' : '关');
+  gridHelper.visible = state.showGrid;
+});
+$('#btn-toggle-bones').addEventListener('click', function() {
+  state.showBones = !state.showBones;
+  this.textContent = '🦴 骨骼锚点: ' + (state.showBones ? '开' : '关');
+  updateBoneMarkers();
+});
+
+// 回正视角 - 平滑回到默认最佳视角
+$('#btn-reset-view').addEventListener('click', resetView);
+
+// Project export/import
+$('#btn-export-project').addEventListener('click', exportProject);
+$('#btn-import-project').addEventListener('click', () => $('#project-file-input').click());
+$('#project-file-input').addEventListener('change', (e) => {
+  if (e.target.files[0]) importProject(e.target.files[0]);
+});
+
+// Video recording
+$('#btn-record').addEventListener('click', startRecording);
+$('#btn-stop-record').addEventListener('click', stopRecording);
+
+// Timeline toolbar
+$('#tl-zoom-in').addEventListener('click', () => {
+  state.pixelsPerSecond = Math.min(400, state.pixelsPerSecond + 25);
+  drawTimeline();
+});
+$('#tl-zoom-out').addEventListener('click', () => {
+  state.pixelsPerSecond = Math.max(25, state.pixelsPerSecond - 25);
+  drawTimeline();
+});
+$('#tl-fit').addEventListener('click', () => {
+  const wrapW = dom.timelineCanvasWrap.getBoundingClientRect().width;
+  state.pixelsPerSecond = Math.max(30, (wrapW - TIMELINE_PADDING_LEFT - 50) / Math.max(state.modelDuration, 1));
+  drawTimeline();
+});
+$('#tl-snap').addEventListener('click', function() {
+  state.snapEnabled = !state.snapEnabled;
+  this.classList.toggle('active', state.snapEnabled);
+});
+
+// Timeline scroll wheel zoom
+dom.timelineCanvasWrap.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    state.pixelsPerSecond += e.deltaY > 0 ? -20 : 20;
+    state.pixelsPerSecond = Math.max(25, Math.min(400, state.pixelsPerSecond));
+    drawTimeline();
+  }
+});
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+function init() {
+  // Load semantic library from localStorage
+  loadSemanticLibrary();
+
+  // Setup renderer size
+  resizeRenderer();
+
+  // Draw initial timeline
+  drawTimeline();
+
+  // Update initial display
+  updateShotList();
+  updatePlaybackTime();
+  dom.totalTimeDisplay.textContent = '0.00s';
+
+  // Start render loop
+  requestAnimationFrame(animate);
+
+  // Handle window resize => redraw timeline
+  window.addEventListener('resize', () => {
+    resizeRenderer();
+    drawTimeline();
+  });
+
+  // Observe timeline container for size changes
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => { drawTimeline(); });
+    ro.observe(dom.timelineCanvasWrap);
+  }
+
+  console.log('🎬 3D运镜工作室已就绪');
+  console.log('  - 内置词汇:', Object.keys(BUILTIN_WORDS).length, '个');
+  console.log('  - 自定义词条:', Object.keys(state.semanticLibrary).length, '个');
+  console.log('  - Three.js + Draco + 语义学习 + 时间轴剪辑');
+  console.log('  - 纯前端运行，无后端依赖');
+  console.log('  - CDN: jsdelivr (国内可访问)');
+}
+
+init();
+
+// Expose for debugging
+window.__cameraStudio = { state, parseShots, evaluateCameraMotion, BUILTIN_WORDS };
+</script>
+</body>
+</html>

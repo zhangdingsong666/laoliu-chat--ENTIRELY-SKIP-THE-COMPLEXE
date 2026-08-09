@@ -1,0 +1,16 @@
+{
+  "deepseek": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "你的DeepSeek-API-Key",
+    "model": "deepseek-v4-flash"
+  },
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434",
+    "model": "minicpm-v:8b"
+  },
+  "execution": {
+    "step_delay_ms": 500,
+    "max_retries": 3,
+    "verify_after_each_step": true
+  }
+}
