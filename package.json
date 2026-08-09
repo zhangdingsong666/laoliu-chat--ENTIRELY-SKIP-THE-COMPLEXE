@@ -1,7 +1,7 @@
 {
   "name": "openclaw-lobster",
   "version": "1.0.0",
-  "description": "OpenClaw QQ Bot Deployment",
+  "description": "老六 Chat - AI 桌面超级 Agent，双模式 AI 助手（对话 + 编程执行）",
   "private": true,
   "scripts": {
     "start": "openclaw gateway --port 18789 --verbose",

@@ -1178,7 +1178,7 @@ class App:
                         try:
                             with open(f["path"], "rb") as img_f:
                                 img_b64 = base64.b64encode(img_f.read()).decode("ascii")
-                            full += f"\n\n[图片base64: data:image/png;base64,{img_b64[:200]}…]"
+                            full += f"\n\n[图片base64: data:image/png;base64,{img_b64}]"
                         except:
                             pass
 
@@ -1247,20 +1247,16 @@ class App:
 
         def run_pipeline():
             try:
-                # 如果有图片附件，用 Claude 视觉能力分析
                 prompt = msg
+                img_paths = None
                 if pending_files:
                     img_paths = [f["path"] for f in pending_files if f["type"] == "image"]
                     file_paths = [f["path"] for f in pending_files if f["type"] == "file"]
-                    if img_paths:
-                        # 多个图片：逐个传入 Claude
-                        for ip in img_paths:
-                            prompt += f"\n[图片路径: {ip}]"
-                        # 使用 claude_bridge 的 --image 参数
-                        if len(img_paths) == 1:
-                            prompt = f'--image "{img_paths[0]}" ' + msg
+                    # 文本文件：提醒 Claude 去读取
+                    for fp in file_paths:
+                        prompt += f"\n[用户提供了文件: {fp}]"
 
-                report = zhixin.run(prompt, progress_cb=progress_cb, config=config)
+                report = zhixin.run(prompt, progress_cb=progress_cb, config=config, image_paths=img_paths)
                 el = time.time() - t0
 
                 final = f"老大，我已完成任务 ✅\n\n📋 执行报告：\n{report}"

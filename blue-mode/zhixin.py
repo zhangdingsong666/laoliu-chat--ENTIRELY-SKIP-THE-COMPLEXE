@@ -1200,19 +1200,29 @@ def run_visual_loop(user_cmd: str, progress_cb=None, config: dict = None) -> str
 CLAUDE_BRIDGE = os.path.join(_BLUE_DIR, "claude_bridge.py")
 
 
-def _call_claude_code(prompt: str, timeout: int = 300) -> dict:
+def _call_claude_code(prompt: str, timeout: int = 300, image_paths: list = None) -> dict:
     """
     通过 claude_bridge.py 调用 Claude Code CLI。
+    image_paths: 可选，图片路径列表
     返回: {"ok": bool, "reply": str, "elapsed": float}
     """
     _debug(f"[Claude桥接] 调用: {prompt[:100]}...")
+    if image_paths:
+        _debug(f"[Claude桥接] 附带 {len(image_paths)} 张图片")
 
     try:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONLEGACYWINDOWSSTDIO"] = "utf-8"
+
+        # 构建命令行：--image 参数放在 prompt 前面
+        cmd = ["python", CLAUDE_BRIDGE]
+        for ip in (image_paths or []):
+            cmd.extend(["--image", ip])
+        cmd.append(prompt)
+
         p = subprocess.Popen(
-            ["python", CLAUDE_BRIDGE, prompt],
+            cmd,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             encoding="utf-8", errors="replace",
             cwd=WORK, env=env,
@@ -1250,18 +1260,21 @@ def _call_claude_code(prompt: str, timeout: int = 300) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def run_claude(prompt: str, progress_cb=None, config: dict = None) -> str:
+def run_claude(prompt: str, progress_cb=None, config: dict = None, image_paths: list = None) -> str:
     """
     Claude 模式入口 — 直接把指令发给 Claude Code，返回回复。
     适用于编程、问答、文件操作等非桌面自动化任务。
+    image_paths: 可选，图片路径列表（支持视觉分析）
     """
     _debug(f"{'='*60}")
     _debug(f"Claude模式启动: {prompt[:100]}")
+    if image_paths:
+        _debug(f"Claude模式: 附带 {len(image_paths)} 张图片")
 
     if progress_cb:
         progress_cb("🤖 调用 Claude Code...", 0, 1)
 
-    result = _call_claude_code(prompt)
+    result = _call_claude_code(prompt, image_paths=image_paths)
 
     if progress_cb:
         progress_cb("✅ Claude 回复完成", 1, 1)
@@ -1276,10 +1289,11 @@ def run_claude(prompt: str, progress_cb=None, config: dict = None) -> str:
 
 # ===== 主入口 =====
 
-def run(user_cmd: str, progress_cb=None, config: dict = None) -> str:
+def run(user_cmd: str, progress_cb=None, config: dict = None, image_paths: list = None) -> str:
     """
     知新管道主入口 — 全部走 Claude Code
     旧的桌面自动化代码保留但不再调用。
+    image_paths: 可选，图片路径列表（支持视觉分析）
     """
     if config is None:
         config = _load_config()
@@ -1302,4 +1316,4 @@ def run(user_cmd: str, progress_cb=None, config: dict = None) -> str:
 
     _debug(f"{'='*60}")
     _debug(f"Claude模式: {prompt[:100]}")
-    return run_claude(prompt, progress_cb, config)
+    return run_claude(prompt, progress_cb, config, image_paths=image_paths)
