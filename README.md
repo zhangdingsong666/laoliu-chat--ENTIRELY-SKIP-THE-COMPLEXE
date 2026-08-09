@@ -2,7 +2,7 @@
   <img src="app-icon.ico" width="96" height="96" alt="老六 Chat 图标">
 </p>
 
-<h1 align="center">🦞 老六 Chat — AI 桌面超级 Agent</h1>
+<h1 align="center">🦞 老六 Chat — 写给新手的 AI 桌面超级 Agent 省略openclaw与Claudecode下载流程，手把手让你跟上ai时代进程</h1>
 
 <p align="center">
   <strong>一个开箱即用的双模式 AI 桌面助手</strong><br>
