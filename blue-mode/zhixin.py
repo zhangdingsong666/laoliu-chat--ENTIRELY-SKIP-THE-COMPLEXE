@@ -1200,25 +1200,35 @@ def run_visual_loop(user_cmd: str, progress_cb=None, config: dict = None) -> str
 CLAUDE_BRIDGE = os.path.join(_BLUE_DIR, "claude_bridge.py")
 
 
-def _call_claude_code(prompt: str, timeout: int = 300) -> dict:
+def _call_claude_code(prompt: str, timeout: int = 300, image_paths: list = None) -> dict:
     """
     通过 claude_bridge.py 调用 Claude Code CLI。
+    image_paths: 可选，图片路径列表
     返回: {"ok": bool, "reply": str, "elapsed": float}
     """
     _debug(f"[Claude桥接] 调用: {prompt[:100]}...")
+    if image_paths:
+        _debug(f"[Claude桥接] 附带 {len(image_paths)} 张图片")
 
     try:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONLEGACYWINDOWSSTDIO"] = "utf-8"
+
+        # 构建命令行：只传 --image 参数，prompt 走 stdin（突破 8191 字符限制）
+        cmd = ["python", CLAUDE_BRIDGE]
+        for ip in (image_paths or []):
+            cmd.extend(["--image", ip])
+
         p = subprocess.Popen(
-            ["python", CLAUDE_BRIDGE, prompt],
+            cmd,
+            stdin=subprocess.PIPE,           # prompt 从 stdin 传入
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             encoding="utf-8", errors="replace",
             cwd=WORK, env=env,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
-        out, err = p.communicate(timeout=timeout + 10)
+        out, err = p.communicate(input=prompt, timeout=timeout + 10)
         out = (out or "").strip()
         err = (err or "").strip()
 
@@ -1250,18 +1260,21 @@ def _call_claude_code(prompt: str, timeout: int = 300) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def run_claude(prompt: str, progress_cb=None, config: dict = None) -> str:
+def run_claude(prompt: str, progress_cb=None, config: dict = None, image_paths: list = None) -> str:
     """
     Claude 模式入口 — 直接把指令发给 Claude Code，返回回复。
     适用于编程、问答、文件操作等非桌面自动化任务。
+    image_paths: 可选，图片路径列表（支持视觉分析）
     """
     _debug(f"{'='*60}")
     _debug(f"Claude模式启动: {prompt[:100]}")
+    if image_paths:
+        _debug(f"Claude模式: 附带 {len(image_paths)} 张图片")
 
     if progress_cb:
         progress_cb("🤖 调用 Claude Code...", 0, 1)
 
-    result = _call_claude_code(prompt)
+    result = _call_claude_code(prompt, image_paths=image_paths)
 
     if progress_cb:
         progress_cb("✅ Claude 回复完成", 1, 1)
@@ -1276,10 +1289,11 @@ def run_claude(prompt: str, progress_cb=None, config: dict = None) -> str:
 
 # ===== 主入口 =====
 
-def run(user_cmd: str, progress_cb=None, config: dict = None) -> str:
+def run(user_cmd: str, progress_cb=None, config: dict = None, image_paths: list = None) -> str:
     """
     知新管道主入口 — 全部走 Claude Code
     旧的桌面自动化代码保留但不再调用。
+    image_paths: 可选，图片路径列表（支持视觉分析）
     """
     if config is None:
         config = _load_config()
@@ -1302,4 +1316,51 @@ def run(user_cmd: str, progress_cb=None, config: dict = None) -> str:
 
     _debug(f"{'='*60}")
     _debug(f"Claude模式: {prompt[:100]}")
-    return run_claude(prompt, progress_cb, config)
+    return run_claude(prompt, progress_cb, config, image_paths=image_paths)
+
+
+# ===== 流式入口 =====
+
+def run_stream(user_cmd: str, on_text=None, on_done=None,
+               config: dict = None, image_paths: list = None,
+               file_paths: list = None, timeout: int = 300) -> None:
+    """
+    流式聊天入口 — 直接调用 Claude Code CLI 的 stream-json 输出。
+    适用于简单对话（非桌面自动化任务）。
+
+    on_text(str)   — 每收到一段 delta 文本回调
+    on_done(dict)  — 流结束回调: {"ok": bool, "elapsed": float, "error": str|None}
+    """
+    if config is None:
+        config = _load_config()
+
+    prompt = user_cmd.strip()
+    if not prompt:
+        if on_done:
+            on_done({"ok": False, "error": "请提供指令", "elapsed": 0})
+        return
+
+    # 文件/图片附加到 prompt
+    if file_paths:
+        prompt += "\n\n---\n用户提供了以下文件，请使用 Read 工具逐个读取并分析：\n"
+        for fp in file_paths:
+            prompt += f"\n- {fp}"
+        prompt += "\n\n请读取上述所有文件后再回复用户。\n---"
+
+    # 如果有网页搜索指令，提示 Claude 使用 WebSearch
+    if prompt.strip().startswith("🔍"):
+        prompt = prompt.strip()[2:].strip()
+        prompt = "Please use WebSearch to search the web for relevant information before answering.\n\n" + prompt
+
+    _debug(f"[流式] 启动: {prompt[:100]}")
+
+    try:
+        import claude_bridge
+        claude_bridge.call_claude_stream(
+            prompt, timeout=timeout, image_paths=image_paths,
+            on_text=on_text, on_done=on_done
+        )
+    except Exception as e:
+        _debug(f"[流式] 异常: {e}")
+        if on_done:
+            on_done({"ok": False, "error": str(e), "elapsed": 0})

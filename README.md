@@ -30,7 +30,7 @@
 
 ### 方式一：下载发行版（推荐）
 
-> 🔗 **[→ 点击这里下载最新版本](../../releases/latest)**
+> 🔗 **[→ 点击这里下载最新版本](https://github.com/zhangdingsong666/laoliu-chat/releases/latest)**
 
 1. 下载 `老六Chat-v1.0.0.zip`
 2. 解压到任意目录（建议 `D:\老六Chat`）
@@ -41,7 +41,7 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/SHIREN9527/laoliu-chat.git
+git clone https://github.com/zhangdingsong666/laoliu-chat.git
 cd laoliu-chat
 
 # 2. 运行安装脚本

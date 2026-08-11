@@ -195,6 +195,9 @@ class App:
         self._tw = []  # theme-widgets: 需要换肤的 widget
         self._pending_files = []  # 待发送的文件列表 [{"path":..., "type":"image"|"file"}]
         self._file_labels = []   # 附件标签 widget
+        self._web_search_enabled = False  # 网页搜索开关
+        self._stream_text = ""   # 流式输出累积文本
+        self._stream_start = ""  # 流式 bubble 起始位置
 
         self._fonts()
         self._ui()
@@ -380,22 +383,21 @@ class App:
         # ============ 底部输入栏（先 pack，保证优先占据空间）============
         tk.Frame(self.ma, bg=CB, height=2).pack(fill=tk.X, side=tk.BOTTOM)
 
-        bar = tk.Frame(self.ma, bg=BAR_BG, height=110)
-        bar.pack(fill=tk.X, side=tk.BOTTOM)
-        bar.pack_propagate(False)
+        self._bar = tk.Frame(self.ma, bg=BAR_BG)
+        self._bar.pack(fill=tk.X, side=tk.BOTTOM)
 
         # ---- 提示文字（输入框上方） ----
-        hint = tk.Label(bar, text="输入消息 Enter 发送 · Shift+Enter 换行 · /model /apikey /config 切换配置", fg=BAR_HINT, bg=BAR_BG, font=self.fx)
+        hint = tk.Label(self._bar, text="输入消息 Enter 发送 · Shift+Enter 换行 · /model /apikey /config 切换配置", fg=BAR_HINT, bg=BAR_BG, font=self.fx)
         hint.pack(pady=(6,0))
 
         # ---- 输入行（圆角输入框） ----
-        input_row = tk.Frame(bar, bg=BAR_BG, height=50)
-        input_row.pack(fill=tk.X, padx=20, pady=(4,0))
-        input_row.pack_propagate(False)
+        self._input_row = tk.Frame(self._bar, bg=BAR_BG)
+        self._input_row.pack(fill=tk.X, padx=20, pady=(4,0))
+        self._input_row.pack_propagate(False)  # 高度由代码动态控制
 
         # 圆角输入框：Canvas 绘制圆角边框 + Text widget 置于其上
         R = 14  # 圆角半径
-        self._inp_frame = tk.Frame(input_row, bg=BAR_BG)
+        self._inp_frame = tk.Frame(self._input_row, bg=BAR_BG)
         self._inp_frame.pack(fill=tk.BOTH, expand=True, side=tk.LEFT, padx=(0, 10))
 
         # Canvas 边框层
@@ -408,8 +410,14 @@ class App:
                           padx=16, pady=10,
                           borderwidth=0, highlightthickness=0,
                           insertbackground=AC, insertwidth=3,
-                          height=2, relief=tk.FLAT)
-        self.inp.place(x=3, y=3, relwidth=1.0, relheight=1.0, width=-6, height=-6)
+                          height=2, relief=tk.FLAT, yscrollcommand=None)
+        # 水平填满，高度动态控制（不随 frame 等比缩放）
+        self.inp.place(x=3, y=3, relwidth=1.0, width=-6)
+        self._inp_line_h = 20  # 单行像素高度（首次按键后实测校准）
+        self._inp_min_h = 2 * self._inp_line_h + 20  # 2行文本 + pady=10×2
+        self.inp.place_configure(height=self._inp_min_h)
+        self._inp_frame.configure(height=self._inp_min_h + 6)  # +6 = place xy偏移(3×2)
+        self._input_row.configure(height=self._inp_min_h + 16)  # +16 = 按钮区余量
 
         # 绑定 resize 以重绘圆角
         def _draw_rounded(e=None):
@@ -432,9 +440,32 @@ class App:
         self._inp_canvas.bind("<Configure>", _draw_rounded)
         self.root.after(100, _draw_rounded)
 
+        # ---- 输入框自动扩高 ----
+        self._input_max_lines = 5
+        self._input_expanded = False
+        self._expand_showing = False
+
+        def _auto_resize(e=None):
+            """输入文字后延迟调高（避免每次按键都重绘）"""
+            self.root.after_idle(self._do_input_resize)
+
+        def _on_paste_resize(e):
+            """粘贴后立即调高"""
+            self.root.after(200, self._do_input_resize)
+
+        self.inp.bind("<KeyRelease>", _auto_resize)
+        self.inp.bind("<<Paste>>", _on_paste_resize)
+
+        # ---- 展开按钮（超过最大行数时出现） ----
+        self._expand_btn = tk.Label(
+            self._bar, text="展开 ▼", fg=T3, bg=BAR_BG, font=self.fx,
+            cursor="hand2"
+        )
+        self._expand_btn.bind("<Button-1>", lambda e: self._toggle_expand())
+
         # ---- 圆形发送按钮 ----
         SZ = 42
-        self.btn_c = tk.Canvas(input_row, width=SZ, height=SZ,
+        self.btn_c = tk.Canvas(self._input_row, width=SZ, height=SZ,
                                 bg=BAR_BG, highlightthickness=0, cursor="hand2")
         self.btn_c.pack(side=tk.RIGHT)
         self._bc = self.btn_c.create_oval(0, 0, SZ, SZ, fill=AC, outline="", width=0)
@@ -446,7 +477,7 @@ class App:
         self.btn_c.bind("<Leave>", lambda e: (self.btn_c.itemconfig(self._bc, fill=AC) if not self.busy else None))
 
         # ---- 📷 看屏幕按钮 ----
-        self.btn_v = tk.Canvas(input_row, width=36, height=36,
+        self.btn_v = tk.Canvas(self._input_row, width=36, height=36,
                                 bg=BAR_BG, highlightthickness=0, cursor="hand2")
         self.btn_v.pack(side=tk.RIGHT, padx=(0, 8))
         self._bv = self.btn_v.create_oval(0, 0, 36, 36, fill="#5a3040", outline="", width=0)
@@ -458,7 +489,7 @@ class App:
         self.btn_v.bind("<Leave>", lambda e: (self.btn_v.itemconfig(self._bv, fill="#5a3040") if not self.busy else None))
 
         # ---- 📎 选择文件按钮 ----
-        self.btn_a = tk.Canvas(input_row, width=36, height=36,
+        self.btn_a = tk.Canvas(self._input_row, width=36, height=36,
                                 bg=BAR_BG, highlightthickness=0, cursor="hand2")
         self.btn_a.pack(side=tk.RIGHT, padx=(0, 8))
         self._ba_bg = self.btn_a.create_oval(0, 0, 36, 36, fill="#40405a", outline="", width=0)
@@ -469,8 +500,20 @@ class App:
         self.btn_a.bind("<Enter>", lambda e: self.btn_a.itemconfig(self._ba_bg, fill="#50506a"))
         self.btn_a.bind("<Leave>", lambda e: (self.btn_a.itemconfig(self._ba_bg, fill="#40405a") if not self.busy else None))
 
+        # ---- 🌐 网页搜索开关 ----
+        self.btn_w = tk.Canvas(self._input_row, width=36, height=36,
+                                bg=BAR_BG, highlightthickness=0, cursor="hand2")
+        self.btn_w.pack(side=tk.RIGHT, padx=(0, 8))
+        self._bw_bg = self.btn_w.create_oval(0, 0, 36, 36, fill="#304050", outline="", width=0)
+        self._bw_txt = self.btn_w.create_text(18, 18, text="🌐", fill="white",
+                                               font=font.Font(family="Microsoft YaHei", size=14),
+                                               anchor="center")
+        self.btn_w.bind("<Button-1>", lambda e: self._toggle_web_search())
+        self.btn_w.bind("<Enter>", lambda e: self.btn_w.itemconfig(self._bw_bg, fill="#405060"))
+        self.btn_w.bind("<Leave>", lambda e: (self.btn_w.itemconfig(self._bw_bg, fill="#304050") if not self.busy else None))
+
         # ---- 附件标签行（输入框上方）----
-        self._attach_row = tk.Frame(bar, bg=BAR_BG, height=24)
+        self._attach_row = tk.Frame(self._bar, bg=BAR_BG, height=24)
         self._attach_row.pack(fill=tk.X, padx=20, pady=(2, 0))
         self._attach_row.pack_propagate(False)
         # 默认隐藏
@@ -556,10 +599,11 @@ class App:
         paths = filedialog.askopenfilenames(
             title="选择文件或图片",
             filetypes=[
-                ("所有支持的文件", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.txt;*.py;*.md;*.pdf;*.json;*.csv;*.log"),
+                ("所有支持的文件", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;"
+                 "*.txt;*.py;*.md;*.pdf;*.docx;*.xlsx;*.pptx;*.json;*.csv;*.log"),
                 ("图片", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"),
+                ("文档", "*.pdf;*.docx;*.xlsx;*.pptx"),
                 ("文本文件", "*.txt;*.py;*.md;*.json;*.csv;*.log"),
-                ("PDF", "*.pdf"),
                 ("所有文件", "*.*"),
             ]
         )
@@ -591,11 +635,12 @@ class App:
         return None
 
     def _add_attachment(self, path: str):
-        """添加一个附件到待发送列表"""
+        """添加一个附件到待发送列表，显示缩略图（图片）或类型标签（文件）"""
         if not os.path.exists(path):
             return
         ext = os.path.splitext(path)[1].lower()
-        ftype = "image" if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp") else "file"
+        is_img = ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
+        ftype = "image" if is_img else "file"
 
         # 避免重复添加
         if any(f["path"] == path for f in self._pending_files):
@@ -603,27 +648,65 @@ class App:
 
         self._pending_files.append({"path": path, "type": ftype})
 
-        # 显示附件标签
-        self._attach_row.pack(fill=tk.X, padx=20, pady=(2, 0), before=self._inp_frame.master)
+        # 显示附件行（置于输入行上方）
+        self._attach_row.pack(fill=tk.X, padx=20, pady=(2, 0), before=self._input_row)
 
         name = os.path.basename(path)
-        emoji = "🖼" if ftype == "image" else "📄"
-        max_name = name[:18] + "…" if len(name) > 18 else name
-        lbl = tk.Label(self._attach_row, text=f"{emoji} {max_name}",
-                       bg=BG3, fg=T1, font=self.fx, padx=6, pady=1)
+        # 文件大小
+        fsize = ""
+        try:
+            sz = os.path.getsize(path)
+            if sz < 1024:
+                fsize = f" {sz}B"
+            elif sz < 1024 * 1024:
+                fsize = f" {sz/1024:.1f}KB"
+            else:
+                fsize = f" {sz/(1024*1024):.1f}MB"
+        except:
+            pass
+
+        # 图片缩略图
+        if is_img and PIL_OK:
+            try:
+                im = Image.open(path)
+                im.thumbnail((40, 40), Image.LANCZOS)
+                ph = ImageTk.PhotoImage(im)
+                # 保存引用防止 GC
+                if not hasattr(self, '_thumb_refs'):
+                    self._thumb_refs = []
+                self._thumb_refs.append(ph)
+                thumb_lbl = tk.Label(self._attach_row, image=ph, bg=BG3, cursor="hand2")
+                thumb_lbl.pack(side=tk.LEFT, padx=(2, 0))
+                thumb_lbl.bind("<Button-1>", lambda e, p=path: os.startfile(p) if os.path.exists(p) else None)
+            except Exception:
+                thumb_lbl = None
+        else:
+            thumb_lbl = None
+
+        # 文件图标 + 名称 + 大小
+        _type_icons = {".pdf":"📕",".docx":"📘",".doc":"📘",".xlsx":"📗",".xls":"📗",
+                       ".csv":"📗",".pptx":"📙",".ppt":"📙",".py":"🐍",".js":"📜",
+                       ".ts":"📜",".json":"📋",".txt":"📄",".md":"📝",
+                       ".png":"🖼",".jpg":"🖼",".jpeg":"🖼",".gif":"🖼",".bmp":"🖼",
+                       ".webp":"🖼",".zip":"📦",".rar":"📦",".7z":"📦"}
+        icon = _type_icons.get(ext, "📄")
+        max_name = name[:22] + "…" if len(name) > 22 else name
+        lbl_text = f"{icon} {max_name}{fsize}"
+        lbl = tk.Label(self._attach_row, text=lbl_text, bg=BG3, fg=T1, font=self.fx, padx=6, pady=1)
         lbl.pack(side=tk.LEFT, padx=2)
 
-        # 点击×移除
-        x_btn = tk.Label(self._attach_row, text=" ×", bg=BG3, fg=T3, font=self.fx,
-                         cursor="hand2")
+        # × 删除按钮
+        x_btn = tk.Label(self._attach_row, text=" ×", bg=BG3, fg=T3, font=self.fx, cursor="hand2")
         x_btn.pack(side=tk.LEFT)
         idx = len(self._pending_files) - 1
 
-        def remove(idx=idx, lbl=lbl, x_btn=x_btn):
+        def remove(idx=idx, lbl=lbl, x_btn=x_btn, thumb=thumb_lbl):
             if 0 <= idx < len(self._pending_files):
                 self._pending_files.pop(idx)
             lbl.destroy()
             x_btn.destroy()
+            if thumb:
+                thumb.destroy()
             if not self._pending_files:
                 self._attach_row.pack_forget()
 
@@ -632,27 +715,54 @@ class App:
 
     def _process_attachments_for_message(self) -> str:
         """
-        将待发送的附件处理为 prompt 文本。
+        将待发送的附件处理为 prompt 文本（用于红模式）。
         - 图片：添加路径说明（实际图片在 _send 中 base64 编码）
-        - 文本文件：读取内容并附加
+        - PDF/Office：使用 file_reader 提取文本
+        - 纯文本文件：直接读取
         """
         parts = []
+        try:
+            from file_reader import read_file_content
+            _fr_ok = True
+        except Exception:
+            _fr_ok = False
+
         for f in self._pending_files:
             path = f["path"]
             ftype = f["type"]
             name = os.path.basename(path)
+            ext = os.path.splitext(path)[1].lower()
+
             if ftype == "image":
                 parts.append(f"[图片: {name}]")
-            else:
-                try:
-                    with open(path, "r", encoding="utf-8") as fh:
-                        content = fh.read()
-                    max_len = 8000
-                    if len(content) > max_len:
-                        content = content[:max_len] + f"\n…(文件过长，已截断，原{len(content)}字符)"
-                    parts.append(f"[文件: {name}]\n```\n{content}\n```")
-                except:
-                    parts.append(f"[文件: {name} (无法读取)]")
+                continue
+
+            # PDF/Office → file_reader
+            if ext in (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx") and _fr_ok:
+                result = read_file_content(path)
+                if result.get("ok"):
+                    meta = result.get("metadata", {})
+                    info = f"[{meta.get('name','?')} · {meta.get('size','?')}"
+                    if meta.get("pages"):
+                        info += f" · {meta['pages']}页"
+                    if meta.get("slides"):
+                        info += f" · {meta['slides']}页幻灯片"
+                    info += "]"
+                    parts.append(f"{info}\n```\n{result['text']}\n```")
+                else:
+                    parts.append(f"[{name} · 读取失败: {result.get('error', '?')}]")
+                continue
+
+            # 纯文本
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+                max_len = 50000
+                if len(content) > max_len:
+                    content = content[:max_len] + f"\n…（文件过大已截断，原{len(content)}字符，建议切换到蓝模式处理大文件）"
+                parts.append(f"[文件: {name}]\n```\n{content}\n```")
+            except Exception:
+                parts.append(f"[文件: {name} (无法读取)]")
         return "\n\n".join(parts)
 
     def _clear_attachments(self):
@@ -664,9 +774,69 @@ class App:
             x_btn.destroy()
         self._file_labels.clear()
 
+    # ================== 输入框自动扩高 ==================
+
+    def _do_input_resize(self, e=None):
+        """根据文本行数动态调整输入框高度（2~5行自动扩高，超5行滚动）"""
+        try:
+            actual = self.inp.count("1.0", "end", "displaylines")[0]
+        except Exception:
+            return
+        visible = max(2, min(actual, self._input_max_lines))
+
+        # 校准行高（首次或字体变化后）
+        info = self.inp.dlineinfo("1.0")
+        if info:
+            self._inp_line_h = info[3]  # 精确像素行高
+        text_padding = 20  # pady=10 × 2
+        text_h = visible * self._inp_line_h + text_padding
+        frame_h = text_h + 6  # place xy 偏移
+
+        self.inp.configure(height=visible)
+        self.inp.place_configure(height=text_h)
+        self._inp_frame.configure(height=frame_h)
+        self._input_row.configure(height=frame_h + 16)  # 同步锁定行高
+
+        # 展开按钮：超过最大行数时显示
+        if actual > self._input_max_lines and not self._expand_showing:
+            self._expand_btn.pack(fill=tk.X, padx=20, pady=(2, 4))
+            self._expand_showing = True
+        elif actual <= self._input_max_lines and self._expand_showing:
+            self._expand_btn.pack_forget()
+            self._expand_showing = False
+
+    def _toggle_expand(self):
+        """展开/收起输入框"""
+        self._input_expanded = not self._input_expanded
+        if self._input_expanded:
+            self.inp.configure(height=15)
+            self._expand_btn.configure(text="收起 ▲")
+            # 一次性放高
+            text_h = 15 * self._inp_line_h + 20
+            self.inp.place_configure(height=text_h)
+            self._inp_frame.configure(height=text_h + 6)
+            self._input_row.configure(height=text_h + 6 + 16)
+        else:
+            self._expand_btn.configure(text="展开 ▼")
+            self._do_input_resize()  # 回到自动高度
+        self._focus_inp()
+
     def _focus_inp(self):
         self.inp.focus_force()
         self.inp.focus_set()
+
+    def _toggle_web_search(self):
+        """🌐 切换网页搜索开关"""
+        self._web_search_enabled = not self._web_search_enabled
+        if self._web_search_enabled:
+            self.btn_w.itemconfig(self._bw_bg, fill="#3060a0")
+            self.btn_w.itemconfig(self._bw_txt, text="🔍")
+            self._sys("🌐 网页搜索已开启 — AI 将优先搜索网络获取信息")
+        else:
+            self.btn_w.itemconfig(self._bw_bg, fill="#304050")
+            self.btn_w.itemconfig(self._bw_txt, text="🌐")
+            self._sys("🌐 网页搜索已关闭")
+        self._focus_inp()
 
     # ================== Gateway ==================
 
@@ -1005,10 +1175,23 @@ class App:
             return
 
         # 拼接附件内容
-        attachment_text = self._process_attachments_for_message() if has_files else ""
+        # 蓝模式：不嵌入内容，让 Claude Code 直接读磁盘文件（支持任意大小）
+        # 红模式：嵌入内容（DeepSeek 无文件系统访问能力）
+        if self.mode == "blue" and THEME_OK:
+            attachment_text = ""
+        else:
+            attachment_text = self._process_attachments_for_message() if has_files else ""
         full_msg = msg
         if attachment_text:
             full_msg = msg + "\n\n" + attachment_text
+
+        # URL 检测：红模式下提示 AI 阅读链接
+        if self.mode != "blue" or not THEME_OK:
+            urls = re.findall(r'(https?://[^\s\n]+)', msg)
+            if urls:
+                full_msg += "\n\n---\n用户分享了以下链接，请阅读链接内容后回复：\n"
+                for u in urls:
+                    full_msg += f"\n- {u}"
 
         # 快照待发送附件（发送后清理）
         pending_files = self._pending_files.copy()
@@ -1152,12 +1335,12 @@ class App:
             self.mq.put(("err", f"视觉分析失败: {e}"))
 
     def _call(self, msg, pending_files=None):
-        # ===== 蓝模式：走知新管道 =====
+        # ===== 蓝模式：走知新管道（流式）=====
         if self.mode == "blue" and THEME_OK:
             self._blue_call(msg, pending_files)
             return
 
-        # ===== 红模式：走 OpenClaw 纯对话 =====
+        # ===== 红模式：走 OpenClaw 网关 =====
         try:
             t0 = time.time()
             ctxs = self.db.ctx(self.sid, 8)
@@ -1168,17 +1351,18 @@ class App:
                 for cm in ctxs[:-1]:
                     nm = "用户" if cm["role"]=="user" else "老六"
                     ctxt += f"{nm}: {cm['content'][:150]}\n"
-                ctxt += "---\n【当前】"
+                ctxt += "---\n【当前】\n"
 
-            # 编码图片附件为 base64
             full = ctxt + msg
+
+            # 图片附件 → base64 嵌入（红模式走纯文本 OpenClaw）
             if pending_files:
                 for f in pending_files:
                     if f["type"] == "image":
                         try:
                             with open(f["path"], "rb") as img_f:
                                 img_b64 = base64.b64encode(img_f.read()).decode("ascii")
-                            full += f"\n\n[图片base64: data:image/png;base64,{img_b64[:200]}…]"
+                            full += f"\n\n[图片base64: data:image/png;base64,{img_b64}]"
                         except:
                             pass
 
@@ -1230,7 +1414,7 @@ class App:
             self.mq.put(("err", f"失败: {e}\n{tb[-200:]}"))
 
     def _blue_call(self, msg, pending_files=None):
-        """蓝模式核心：知新管道 → Claude Code"""
+        """蓝模式核心：知新管道 → Claude Code（流式输出）"""
         import zhixin
         t0 = time.time()
 
@@ -1240,32 +1424,52 @@ class App:
             self.mq.put(("err", f"加载配置失败: {e}"))
             return
 
-        self.root.after(0, lambda: self._status(YW, "🧠 理解任务意图..."))
+        self.root.after(0, lambda: self._status(YW, "🧠 思考中..."))
 
-        def progress_cb(status, idx, total):
-            self.root.after(0, lambda: self._status(YW, status))
+        # 分类文件
+        img_paths = None
+        file_paths = None
+        if pending_files:
+            img_paths = [f["path"] for f in pending_files if f["type"] == "image"]
+            file_paths = [f["path"] for f in pending_files if f["type"] == "file"]
+
+        # 构建增强 prompt
+        prompt = msg
+
+        # 网页搜索提示
+        if self._web_search_enabled:
+            prompt = "Please use WebSearch to search the web for relevant information before answering.\n\n" + prompt
+
+        # URL 检测
+        urls = re.findall(r'(https?://[^\s\n]+)', msg)
+        if urls:
+            prompt += "\n\n---\n用户分享了以下链接，请使用 WebFetch 工具逐个读取内容并分析：\n"
+            for u in urls:
+                prompt += f"\n- {u}"
+            prompt += "\n\n请读取链接内容后再回复用户。\n---"
 
         def run_pipeline():
             try:
-                # 如果有图片附件，用 Claude 视觉能力分析
-                prompt = msg
-                if pending_files:
-                    img_paths = [f["path"] for f in pending_files if f["type"] == "image"]
-                    file_paths = [f["path"] for f in pending_files if f["type"] == "file"]
-                    if img_paths:
-                        # 多个图片：逐个传入 Claude
-                        for ip in img_paths:
-                            prompt += f"\n[图片路径: {ip}]"
-                        # 使用 claude_bridge 的 --image 参数
-                        if len(img_paths) == 1:
-                            prompt = f'--image "{img_paths[0]}" ' + msg
+                # 初始化 stream bubble
+                self.mq.put(("stream_begin",))
+                self._stream_text = ""
 
-                report = zhixin.run(prompt, progress_cb=progress_cb, config=config)
-                el = time.time() - t0
+                def on_text(delta):
+                    self.mq.put(("stream", delta))
 
-                final = f"老大，我已完成任务 ✅\n\n📋 执行报告：\n{report}"
-                self.db.add(self.sid, "agent", final)
-                self.mq.put(("ok", final, el))
+                def on_done(result):
+                    if result.get("ok"):
+                        el = result.get("elapsed", 0)
+                        # 流式完成 — 保存并结束
+                        self.mq.put(("stream_end", self._stream_text, el))
+                    else:
+                        self.mq.put(("err", f"Claude 调用失败: {result.get('error', '未知错误')}"))
+
+                zhixin.run_stream(
+                    prompt, on_text=on_text, on_done=on_done,
+                    config=config, image_paths=img_paths,
+                    file_paths=file_paths
+                )
             except Exception as e:
                 self.mq.put(("err", f"知新管道异常: {e}"))
 
@@ -1296,6 +1500,61 @@ class App:
                 elif t == "gw_err":
                     self.sl.configure(text=it[1])
                     self.sd.itemconfig(self._si, fill=RD)
+                # ---- 流式输出事件 ----
+                elif t == "stream_begin":
+                    ca = self.ca
+                    ca.configure(state=tk.NORMAL)
+                    ca.insert(tk.END, "\n")
+                    ca.mark_set("stream_label", "end-1c")
+                    ca.mark_gravity("stream_label", "left")
+                    meta = MODE_META.get(self.mode, {})
+                    em = meta.get("emoji", "🦞")
+                    name = meta.get("name", "老六")
+                    ca.insert(tk.END, f"{em} {name} · 思考中\n", "al")
+                    ca.mark_set("stream_body", "end-1c")
+                    ca.mark_gravity("stream_body", "left")
+                    ca.configure(state=tk.DISABLED)
+                    ca.see(tk.END)
+                elif t == "stream":
+                    delta = it[1]
+                    self._stream_text += delta
+                    ca = self.ca
+                    ca.configure(state=tk.NORMAL)
+                    # 删除 stream_body 之后的内容，重新插入累积文本
+                    try:
+                        ca.delete("stream_body", tk.END)
+                    except Exception:
+                        pass
+                    ca.insert("stream_body", self._stream_text, "ab")
+                    ca.configure(state=tk.DISABLED)
+                    ca.see(tk.END)
+                elif t == "stream_end":
+                    resp = it[1]
+                    el = it[2] if len(it) > 2 else 0
+                    ca = self.ca
+                    ca.configure(state=tk.NORMAL)
+                    es = f" · {el:.1f}s" if el > 2 else ""
+                    meta = MODE_META.get(self.mode, {})
+                    em = meta.get("emoji", "🦞")
+                    name = meta.get("name", "老六")
+                    # 从 label 标记处删到末尾，重新渲染完整气泡
+                    try:
+                        ca.delete("stream_label", tk.END)
+                    except Exception:
+                        pass
+                    ca.insert("stream_label", f"\n{em} {name}{es}\n", "al")
+                    ca.insert(tk.END, resp, "ab")
+                    ca.configure(state=tk.DISABLED)
+                    ca.see(tk.END)
+                    self.db.add(self.sid, "agent", resp)
+                    self._stream_text = ""
+                    self.busy = False
+                    self.btn_c.itemconfig(self._bc, fill=AC)
+                    self.btn_c.itemconfig(self._ba, text="↑")
+                    self.btn_v.itemconfig(self._bv, fill="#5a3040")
+                    self._status(GR, "就绪")
+                    self._refresh()
+                    self._focus_inp()
                 elif t == "ok":
                     _,resp,el = it
                     self._agent(resp, el)
