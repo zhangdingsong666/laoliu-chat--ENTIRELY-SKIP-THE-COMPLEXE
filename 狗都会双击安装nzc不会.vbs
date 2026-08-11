@@ -1,4 +1,4 @@
-' 老六 Chat — 一键安装（双击即可运行）
+' 老六 Chat — 狗都会双击安装
 Option Explicit
 Dim shell, fso, scriptDir, result, msg
 
@@ -30,7 +30,7 @@ Else
     msg = msg & vbCrLf & "[×] Node.js 依赖安装失败 —— 请确认已安装 Node.js（nodejs.org 下载）"
 End If
 
-msg = msg & vbCrLf & vbCrLf & "安装完成！现在双击 【一键启动.vbs】 即可启动老六 Chat。"
+msg = msg & vbCrLf & vbCrLf & "安装完成！现在双击 【狗都会双击启动nzc不会.vbs】 即可启动老六 Chat。"
 
 MsgBox msg, 64, "老六 Chat — 安装完成"
 

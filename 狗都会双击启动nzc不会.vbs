@@ -1,4 +1,4 @@
-' 老六 Chat — 一键启动（双击即可运行）
+' 老六 Chat — 狗都会双击启动
 Option Explicit
 Dim shell, fso, scriptDir, desktop, shortcutPath, ps1Path
 
